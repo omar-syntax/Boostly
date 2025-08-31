@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { CreateProjectDialog } from "@/components/CreateProjectDialog"
 import { 
   FolderOpen, 
   Plus,
@@ -38,7 +39,7 @@ interface Project {
   icon: any
 }
 
-const projects: Project[] = [
+const initialProjects: Project[] = [
   {
     id: "1",
     title: "Personal Fitness Journey",
@@ -108,7 +109,12 @@ const priorityColors = {
 }
 
 export default function Projects() {
+  const [projects, setProjects] = useState<Project[]>(initialProjects)
   const [selectedCategory, setSelectedCategory] = useState("All")
+
+  const handleProjectCreated = (newProject: Project) => {
+    setProjects(prev => [newProject, ...prev])
+  }
   
   const categories = ["All", ...Array.from(new Set(projects.map(p => p.category)))]
   const filteredProjects = selectedCategory === "All" 
@@ -129,10 +135,7 @@ export default function Projects() {
           <p className="text-muted-foreground">Track and manage your long-term goals and achievements</p>
         </div>
         
-        <Button className="gradient-primary">
-          <Plus className="h-4 w-4 mr-2" />
-          New Project
-        </Button>
+        <CreateProjectDialog onProjectCreated={handleProjectCreated} />
       </div>
 
       {/* Overview Stats */}
@@ -317,10 +320,7 @@ export default function Projects() {
               : `No projects in the ${selectedCategory} category yet.`
             }
           </p>
-          <Button className="gradient-primary">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Project
-          </Button>
+          <CreateProjectDialog onProjectCreated={handleProjectCreated} />
         </Card>
       )}
     </div>

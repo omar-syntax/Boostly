@@ -3,6 +3,10 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { 
   Target, 
   Star, 
@@ -85,6 +89,49 @@ const initialHabits: Habit[] = [
 
 export default function Habits() {
   const [habits, setHabits] = useState<Habit[]>(initialHabits)
+  const [newHabitOpen, setNewHabitOpen] = useState(false)
+  const [newHabitForm, setNewHabitForm] = useState({
+    title: "",
+    description: "",
+    category: "",
+    weeklyTarget: 7,
+    points: 25
+  })
+
+  const categories = ["Mindfulness", "Learning", "Health", "Fitness", "Productivity", "Personal"]
+  const colors = ["bg-secondary", "bg-primary", "bg-success", "bg-warning", "bg-motivation", "bg-purple-500"]
+
+  const handleAddHabit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!newHabitForm.title.trim() || !newHabitForm.category) {
+      return
+    }
+
+    const newHabit: Habit = {
+      id: Date.now().toString(),
+      title: newHabitForm.title,
+      description: newHabitForm.description,
+      streak: 0,
+      bestStreak: 0,
+      completedToday: false,
+      weeklyTarget: newHabitForm.weeklyTarget,
+      weeklyProgress: 0,
+      points: newHabitForm.points,
+      category: newHabitForm.category,
+      color: colors[Math.floor(Math.random() * colors.length)]
+    }
+
+    setHabits(prev => [...prev, newHabit])
+    setNewHabitOpen(false)
+    setNewHabitForm({
+      title: "",
+      description: "",
+      category: "",
+      weeklyTarget: 7,
+      points: 25
+    })
+  }
 
   const toggleHabit = (id: string) => {
     setHabits(habits.map(habit => {
@@ -116,10 +163,104 @@ export default function Habits() {
           <p className="text-muted-foreground">Build consistent habits for lasting success</p>
         </div>
         
-        <Button className="gradient-primary">
-          <Plus className="h-4 w-4 mr-2" />
-          New Habit
-        </Button>
+        <Dialog open={newHabitOpen} onOpenChange={setNewHabitOpen}>
+          <DialogTrigger asChild>
+            <Button className="gradient-primary">
+              <Plus className="h-4 w-4 mr-2" />
+              New Habit
+            </Button>
+          </DialogTrigger>
+          
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-primary" />
+                Create New Habit
+              </DialogTitle>
+            </DialogHeader>
+            
+            <form onSubmit={handleAddHabit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="habit-title">Habit Title *</Label>
+                <Input
+                  id="habit-title"
+                  placeholder="e.g., Morning Meditation, Daily Reading"
+                  value={newHabitForm.title}
+                  onChange={(e) => setNewHabitForm({...newHabitForm, title: e.target.value})}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="habit-description">Description</Label>
+                <Input
+                  id="habit-description"
+                  placeholder="Brief description of your habit..."
+                  value={newHabitForm.description}
+                  onChange={(e) => setNewHabitForm({...newHabitForm, description: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Category *</Label>
+                  <Select value={newHabitForm.category} onValueChange={(value) => setNewHabitForm({...newHabitForm, category: value})}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map(category => (
+                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="weekly-target">Weekly Target</Label>
+                  <Input
+                    id="weekly-target"
+                    type="number"
+                    min="1"
+                    max="7"
+                    value={newHabitForm.weeklyTarget}
+                    onChange={(e) => setNewHabitForm({...newHabitForm, weeklyTarget: parseInt(e.target.value) || 7})}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="points">Points per Completion</Label>
+                <Input
+                  id="points"
+                  type="number"
+                  min="5"
+                  max="100"
+                  value={newHabitForm.points}
+                  onChange={(e) => setNewHabitForm({...newHabitForm, points: parseInt(e.target.value) || 25})}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setNewHabitOpen(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="flex-1 gradient-primary"
+                  disabled={!newHabitForm.title.trim() || !newHabitForm.category}
+                >
+                  Create Habit
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Stats Overview */}

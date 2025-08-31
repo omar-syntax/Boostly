@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { CreatePostDialog } from "@/components/CreatePostDialog"
 import { 
   Heart, 
   MessageCircle, 
@@ -46,7 +47,7 @@ interface Post {
   }
 }
 
-const communityPosts: Post[] = [
+const initialCommunityPosts: Post[] = [
   {
     id: "1",
     author: { name: "Sarah Chen", initials: "SC", level: 15, badge: "Habit Master" },
@@ -118,8 +119,12 @@ const topContributors = [
 ]
 
 export default function Community() {
-  const [posts, setPosts] = useState<Post[]>(communityPosts)
-  const [newPost, setNewPost] = useState("")
+  const [posts, setPosts] = useState<Post[]>(initialCommunityPosts)
+  const [activeFilter, setActiveFilter] = useState("All")
+
+  const handlePostCreated = (newPost: Post) => {
+    setPosts(prev => [newPost, ...prev])
+  }
 
   const toggleLike = (postId: string) => {
     setPosts(posts.map(post => 
@@ -133,24 +138,18 @@ export default function Community() {
     ))
   }
 
-  const addPost = () => {
-    if (!newPost.trim()) return
-
-    const post: Post = {
-      id: Date.now().toString(),
-      author: { name: "You", initials: "YO", level: 10, badge: "Rising Star" },
-      content: newPost,
-      type: "tip",
-      timestamp: new Date(),
-      likes: 0,
-      comments: 0,
-      shares: 0,
-      liked: false
-    }
-
-    setPosts([post, ...posts])
-    setNewPost("")
-  }
+  const filters = ["All", "Achievement", "Tips", "Motivation", "Videos"]
+  const filteredPosts = activeFilter === "All" 
+    ? posts 
+    : posts.filter(post => {
+        switch(activeFilter.toLowerCase()) {
+          case "achievement": return post.type === "achievement"
+          case "tips": return post.type === "tip"
+          case "motivation": return post.type === "motivation"
+          case "videos": return post.type === "video"
+          default: return true
+        }
+      })
 
   const getPostIcon = (type: string) => {
     switch (type) {
@@ -195,10 +194,7 @@ export default function Community() {
           <p className="text-muted-foreground">Connect, share, and get inspired by fellow productivity enthusiasts</p>
         </div>
         
-        <Button className="gradient-primary">
-          <Plus className="h-4 w-4 mr-2" />
-          Create Post
-        </Button>
+        <CreatePostDialog onPostCreated={handlePostCreated} />
       </div>
 
       {/* Community Stats */}
@@ -252,47 +248,29 @@ export default function Community() {
         </Card>
       </div>
 
+      {/* Filters */}
+      <div className="flex items-center gap-4 mb-6">
+        <span className="text-sm text-muted-foreground">Filter:</span>
+        <div className="flex gap-2">
+          {filters.map(filter => (
+            <Button
+              key={filter}
+              variant={activeFilter === filter ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveFilter(filter)}
+            >
+              {filter}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Main Feed */}
         <div className="lg:col-span-3 space-y-6">
-          {/* Create Post */}
-          <Card className="p-6">
-            <div className="flex items-start gap-4">
-              <Avatar>
-                <AvatarFallback className="gradient-primary text-white">YO</AvatarFallback>
-              </Avatar>
-              
-              <div className="flex-1 space-y-4">
-                <Input
-                  placeholder="Share your productivity tips, achievements, or motivation..."
-                  value={newPost}
-                  onChange={(e) => setNewPost(e.target.value)}
-                  className="border-none bg-muted/50 text-base py-3"
-                />
-                
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
-                      <Video className="h-4 w-4 mr-2" />
-                      Video
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Trophy className="h-4 w-4 mr-2" />
-                      Achievement
-                    </Button>
-                  </div>
-                  
-                  <Button onClick={addPost} className="gradient-primary">
-                    Share
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
-
           {/* Posts Feed */}
           <div className="space-y-4">
-            {posts.map(post => (
+            {filteredPosts.map(post => (
               <Card key={post.id} className="p-6 hover:shadow-medium transition-smooth">
                 <div className="space-y-4">
                   {/* Post Header */}

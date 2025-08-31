@@ -100,7 +100,7 @@ export default function Tasks() {
       points: 25
     }
     
-    setTasks([...tasks, task])
+    setTasks([task, ...tasks])
     setNewTask("")
   }
 

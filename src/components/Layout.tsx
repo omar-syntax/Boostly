@@ -1,13 +1,17 @@
+import { useState } from "react"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/AppSidebar"
 import { Button } from "@/components/ui/button"
 import { Bell, Settings } from "lucide-react"
+import { NotificationPanel } from "@/components/NotificationPanel"
 
 interface LayoutProps {
   children: React.ReactNode
 }
 
 export function Layout({ children }: LayoutProps) {
+  const [notificationOpen, setNotificationOpen] = useState(false)
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -25,7 +29,12 @@ export function Layout({ children }: LayoutProps) {
               </div>
               
               <div className="flex items-center gap-3">
-                <Button variant="ghost" size="icon" className="relative">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="relative"
+                  onClick={() => setNotificationOpen(!notificationOpen)}
+                >
                   <Bell className="h-4 w-4" />
                   <span className="absolute -top-1 -right-1 h-2 w-2 bg-motivation rounded-full animate-pulse-glow"></span>
                 </Button>
@@ -45,6 +54,12 @@ export function Layout({ children }: LayoutProps) {
           </main>
         </div>
       </div>
+
+      {/* Notifications Panel */}
+      <NotificationPanel 
+        isOpen={notificationOpen} 
+        onClose={() => setNotificationOpen(false)} 
+      />
     </SidebarProvider>
   )
 }
