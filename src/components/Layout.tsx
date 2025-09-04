@@ -1,32 +1,42 @@
 import { useState } from "react"
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider, useSidebar } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/AppSidebar"
 import { Button } from "@/components/ui/button"
-import { Bell, Settings } from "lucide-react"
+import { Bell, Settings, Menu } from "lucide-react"
 import { NotificationPanel } from "@/components/NotificationPanel"
 
 interface LayoutProps {
   children: React.ReactNode
 }
 
-export function Layout({ children }: LayoutProps) {
-  const [notificationOpen, setNotificationOpen] = useState(false)
+function LayoutContent({ children, notificationOpen, setNotificationOpen }: { 
+  children: React.ReactNode
+  notificationOpen: boolean
+  setNotificationOpen: (open: boolean) => void
+}) {
+  const { toggleSidebar } = useSidebar()
 
   return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
-        
-        <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <header className="h-16 border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-50">
-            <div className="flex items-center justify-between h-full px-6">
-              <div className="flex items-center gap-4">
-                <SidebarTrigger className="hover:bg-accent" />
-                <div className="gradient-hero bg-clip-text text-transparent">
-                  <h1 className="text-xl font-bold">Boostly</h1>
-                </div>
+    <div className="min-h-screen flex w-full bg-background">
+      <AppSidebar />
+      
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="h-16 border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-50">
+          <div className="flex items-center justify-between h-full px-6">
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={toggleSidebar}
+                className="hover:bg-accent"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div className="gradient-hero bg-clip-text text-transparent">
+                <h1 className="text-xl font-bold">Boostly</h1>
               </div>
+            </div>
               
               <div className="flex items-center gap-3">
                 <Button 
@@ -48,13 +58,26 @@ export function Layout({ children }: LayoutProps) {
             </div>
           </header>
 
-          {/* Main Content */}
-          <main className="flex-1 p-6 bg-gradient-to-br from-background to-surface">
-            {children}
-          </main>
-        </div>
-      </div>
+      {/* Main Content */}
+      <main className="flex-1 p-6 bg-gradient-to-br from-background to-surface">
+        {children}
+      </main>
+    </div>
+  </div>
+)
+}
 
+export function Layout({ children }: LayoutProps) {
+  const [notificationOpen, setNotificationOpen] = useState(false)
+
+  return (
+    <SidebarProvider>
+      <LayoutContent 
+        children={children}
+        notificationOpen={notificationOpen}
+        setNotificationOpen={setNotificationOpen}
+      />
+      
       {/* Notifications Panel */}
       <NotificationPanel 
         isOpen={notificationOpen} 

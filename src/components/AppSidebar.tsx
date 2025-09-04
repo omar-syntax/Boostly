@@ -35,10 +35,15 @@ const menuItems = [
 ]
 
 export function AppSidebar() {
-  const { state } = useSidebar()
+  const { state, setOpen } = useSidebar()
   const collapsed = state === "collapsed"
   const location = useLocation()
   const currentPath = location.pathname
+
+  const handleNavClick = () => {
+    // Auto-close sidebar on navigation (especially useful on mobile)
+    setOpen(false)
+  }
 
   const isActive = (path: string) => {
     if (path === "/" && currentPath === "/") return true
@@ -102,7 +107,12 @@ export function AppSidebar() {
                     asChild 
                     className={`${getNavClassName(item.url)} transition-smooth hover:scale-[1.02] rounded-lg`}
                   >
-                    <NavLink to={item.url} end className="flex items-center gap-3">
+                    <NavLink 
+                      to={item.url} 
+                      end 
+                      className="flex items-center gap-3"
+                      onClick={handleNavClick}
+                    >
                       <item.icon className={`h-5 w-5 ${isActive(item.url) ? item.color : ""}`} />
                       {!collapsed && (
                         <span className="font-medium">{item.title}</span>
