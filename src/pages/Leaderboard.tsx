@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
+import { RewardsDialog } from "@/components/RewardsDialog"
 import { 
   Trophy, 
   Medal, 
@@ -416,9 +417,11 @@ export default function Leaderboard() {
           
           <div className="text-center">
             <Trophy className="h-12 w-12 mx-auto mb-2" />
-            <Button variant="glass">
-              View Rewards
-            </Button>
+            <RewardsDialog>
+              <Button variant="glass">
+                View Rewards
+              </Button>
+            </RewardsDialog>
           </div>
         </div>
       </Card>

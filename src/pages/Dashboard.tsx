@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts"
 import { Link } from "react-router-dom"
+import { BadgeDialog } from "@/components/BadgeDialog"
 
 const weeklyData = [
   { name: 'Mon', tasks: 12, habits: 8, focus: 4 },
@@ -272,9 +273,11 @@ export default function Dashboard() {
             <h3 className="text-xl font-bold">New Achievement Unlocked!</h3>
             <p className="text-white/90">You've completed 50 tasks this month. Keep up the great work!</p>
           </div>
-          <Button variant="glass" size="lg">
-            View Badge
-          </Button>
+          <BadgeDialog>
+            <Button variant="glass" size="lg">
+              View Badge
+            </Button>
+          </BadgeDialog>
         </div>
       </Card>
     </div>

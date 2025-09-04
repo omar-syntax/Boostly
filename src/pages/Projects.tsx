@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { CreateProjectDialog } from "@/components/CreateProjectDialog"
+import { CelebrationDialog } from "@/components/CelebrationDialog"
 import { 
   FolderOpen, 
   Plus,
@@ -303,9 +304,11 @@ export default function Projects() {
               You're making amazing progress on your long-term goals. Keep pushing forward!
             </p>
           </div>
-          <Button variant="glass" size="lg">
-            Celebrate
-          </Button>
+          <CelebrationDialog>
+            <Button variant="glass" size="lg">
+              Celebrate
+            </Button>
+          </CelebrationDialog>
         </div>
       </Card>
 

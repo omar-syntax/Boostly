@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { FocusStatsDialog } from "@/components/FocusStatsDialog"
 import { 
   Timer, 
   Play, 
@@ -370,9 +371,11 @@ export default function Focus() {
           <p className="text-white/90 mb-4">
             Deep work is like a superpower in our increasingly competitive economy. Stay focused and achieve more!
           </p>
-          <Button variant="glass" size="lg">
-            View Focus Statistics
-          </Button>
+          <FocusStatsDialog>
+            <Button variant="glass" size="lg">
+              View Focus Statistics
+            </Button>
+          </FocusStatsDialog>
         </div>
       </Card>
     </div>
