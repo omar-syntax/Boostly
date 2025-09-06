@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CreatePostDialog } from "@/components/CreatePostDialog"
 import { 
   Heart, 
@@ -17,7 +18,9 @@ import {
   Zap,
   Users,
   TrendingUp,
-  Play
+  Play,
+  Headphones,
+  Filter
 } from "lucide-react"
 
 interface Post {
@@ -45,6 +48,16 @@ interface Post {
     points: number
     icon: string
   }
+}
+
+interface Podcast {
+  id: string
+  title: string
+  caption: string
+  category: "Business" | "Religion" | "Productivity" | "Relationships"
+  youtubeUrl: string
+  thumbnail: string
+  duration?: string
 }
 
 const initialCommunityPosts: Post[] = [
@@ -118,9 +131,49 @@ const topContributors = [
   { name: "Alex Kim", points: 1890, posts: 41, badge: "⭐" }
 ]
 
+const podcastsData: Podcast[] = [
+  {
+    id: "1",
+    title: "Distraction",
+    caption: "How to overcome digital distractions and reclaim your focus in a hyperconnected world",
+    category: "Productivity",
+    youtubeUrl: "https://youtu.be/f0AHyAhNulc?si=3B5RYWltTa9ij_Eh",
+    thumbnail: "https://img.youtube.com/vi/f0AHyAhNulc/maxresdefault.jpg",
+    duration: "24:15"
+  },
+  {
+    id: "2", 
+    title: "Building Wealth Through Faith",
+    caption: "Biblical principles for financial stewardship and building generational wealth",
+    category: "Religion",
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+    thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+    duration: "32:45"
+  },
+  {
+    id: "3",
+    title: "The Entrepreneur's Mindset", 
+    caption: "Essential mental frameworks for scaling your business and leading teams",
+    category: "Business",
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+    thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg", 
+    duration: "18:30"
+  },
+  {
+    id: "4",
+    title: "Love in the Digital Age",
+    caption: "Navigating modern relationships and building authentic connections",
+    category: "Relationships", 
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+    thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
+    duration: "27:20"
+  }
+]
+
 export default function Community() {
   const [posts, setPosts] = useState<Post[]>(initialCommunityPosts)
   const [activeFilter, setActiveFilter] = useState("All")
+  const [podcastFilter, setPodcastFilter] = useState("All")
 
   const handlePostCreated = (newPost: Post) => {
     setPosts(prev => [newPost, ...prev])
@@ -150,6 +203,11 @@ export default function Community() {
           default: return true
         }
       })
+
+  const podcastCategories = ["All", "Productivity", "Business", "Religion", "Relationships"]
+  const filteredPodcasts = podcastFilter === "All" 
+    ? podcastsData 
+    : podcastsData.filter(podcast => podcast.category === podcastFilter)
 
   const getPostIcon = (type: string) => {
     switch (type) {
@@ -248,188 +306,273 @@ export default function Community() {
         </Card>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-4 mb-6">
-        <span className="text-sm text-muted-foreground">Filter:</span>
-        <div className="flex gap-2">
-          {filters.map(filter => (
-            <Button
-              key={filter}
-              variant={activeFilter === filter ? "default" : "outline"}
-              size="sm"
-              onClick={() => setActiveFilter(filter)}
-            >
-              {filter}
-            </Button>
-          ))}
-        </div>
-      </div>
+      {/* Tabs */}
+      <Tabs defaultValue="posts" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="posts" className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4" />
+            Posts
+          </TabsTrigger>
+          <TabsTrigger value="podcasts" className="flex items-center gap-2">
+            <Headphones className="h-4 w-4" />
+            Podcasts
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Main Feed */}
-        <div className="lg:col-span-3 space-y-6">
-          {/* Posts Feed */}
-          <div className="space-y-4">
-            {filteredPosts.map(post => (
-              <Card key={post.id} className="p-6 hover:shadow-medium transition-smooth">
-                <div className="space-y-4">
-                  {/* Post Header */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <Avatar>
-                        <AvatarFallback className="gradient-primary text-white">
-                          {post.author.initials}
-                        </AvatarFallback>
-                      </Avatar>
-                      
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{post.author.name}</span>
-                          <Badge variant="outline" className="text-xs">
-                            Level {post.author.level}
-                          </Badge>
-                          <Badge variant="outline" className="text-xs bg-warning/10 text-warning">
-                            {post.author.badge}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          {getPostIcon(post.type)}
-                          <span>{formatTimestamp(post.timestamp)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+        <TabsContent value="posts" className="space-y-6">
+          {/* Filters */}
+          <div className="flex items-center gap-4 mb-6">
+            <span className="text-sm text-muted-foreground">Filter:</span>
+            <div className="flex gap-2">
+              {filters.map(filter => (
+                <Button
+                  key={filter}
+                  variant={activeFilter === filter ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActiveFilter(filter)}
+                >
+                  {filter}
+                </Button>
+              ))}
+            </div>
+          </div>
 
-                  {/* Achievement Badge */}
-                  {post.achievement && (
-                    <div className="p-4 rounded-lg gradient-success text-white">
-                      <div className="flex items-center gap-3">
-                        <div className="text-2xl">{post.achievement.icon}</div>
-                        <div>
-                          <div className="font-semibold">Achievement Unlocked!</div>
-                          <div className="text-white/90">{post.achievement.title}</div>
-                          <div className="text-sm text-white/80">+{post.achievement.points} points</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Post Content */}
-                  <div className="text-foreground leading-relaxed">
-                    {post.content}
-                  </div>
-
-                  {/* YouTube Video Player */}
-                  {post.media?.type === "video" && post.media.url && (
-                    <div className="rounded-lg overflow-hidden aspect-video">
-                      {(() => {
-                        const videoId = getYouTubeVideoId(post.media.url)
-                        return videoId ? (
-                          <iframe
-                            src={`https://www.youtube.com/embed/${videoId}`}
-                            title="YouTube video player"
-                            frameBorder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            allowFullScreen
-                            className="w-full h-full"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-muted flex items-center justify-center">
-                            <p className="text-muted-foreground">Invalid video URL</p>
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Main Feed */}
+            <div className="lg:col-span-3 space-y-6">
+              {/* Posts Feed */}
+              <div className="space-y-4">
+                {filteredPosts.map(post => (
+                  <Card key={post.id} className="p-6 hover:shadow-medium transition-smooth">
+                    <div className="space-y-4">
+                      {/* Post Header */}
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <Avatar>
+                            <AvatarFallback className="gradient-primary text-white">
+                              {post.author.initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold">{post.author.name}</span>
+                              <Badge variant="outline" className="text-xs">
+                                Level {post.author.level}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs bg-warning/10 text-warning">
+                                {post.author.badge}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {getPostIcon(post.type)}
+                              <span>{formatTimestamp(post.timestamp)}</span>
+                            </div>
                           </div>
-                        )
-                      })()}
+                        </div>
+                      </div>
+
+                      {/* Achievement Badge */}
+                      {post.achievement && (
+                        <div className="p-4 rounded-lg gradient-success text-white">
+                          <div className="flex items-center gap-3">
+                            <div className="text-2xl">{post.achievement.icon}</div>
+                            <div>
+                              <div className="font-semibold">Achievement Unlocked!</div>
+                              <div className="text-white/90">{post.achievement.title}</div>
+                              <div className="text-sm text-white/80">+{post.achievement.points} points</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Post Content */}
+                      <div className="text-foreground leading-relaxed">
+                        {post.content}
+                      </div>
+
+                      {/* YouTube Video Player */}
+                      {post.media?.type === "video" && post.media.url && (
+                        <div className="rounded-lg overflow-hidden aspect-video">
+                          {(() => {
+                            const videoId = getYouTubeVideoId(post.media.url)
+                            return videoId ? (
+                              <iframe
+                                src={`https://www.youtube.com/embed/${videoId}`}
+                                title="YouTube video player"
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                allowFullScreen
+                                className="w-full h-full"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-muted flex items-center justify-center">
+                                <p className="text-muted-foreground">Invalid video URL</p>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
+
+                      {/* Post Actions */}
+                      <div className="flex items-center justify-between pt-4 border-t">
+                        <div className="flex items-center gap-6">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={post.liked ? "text-red-500" : ""}
+                            onClick={() => toggleLike(post.id)}
+                          >
+                            <Heart className={`h-4 w-4 mr-2 ${post.liked ? "fill-current" : ""}`} />
+                            {post.likes}
+                          </Button>
+                          
+                          <Button variant="ghost" size="sm">
+                            <MessageCircle className="h-4 w-4 mr-2" />
+                            {post.comments}
+                          </Button>
+                          
+                          <Button variant="ghost" size="sm">
+                            <Share className="h-4 w-4 mr-2" />
+                            {post.shares}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* Trending Topics */}
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">Trending Topics</h3>
+                <div className="space-y-3">
+                  {trendingTopics.map((topic, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">#{topic.name}</div>
+                        <div className="text-sm text-muted-foreground">{topic.posts} posts</div>
+                      </div>
+                      <Badge variant="outline" className="text-xs text-success">
+                        {topic.growth}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Top Contributors */}
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">Top Contributors</h3>
+                <div className="space-y-3">
+                  {topContributors.map((contributor, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <div className="text-xl">{contributor.badge}</div>
+                      <div className="flex-1">
+                        <div className="font-medium">{contributor.name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {contributor.points} points • {contributor.posts} posts
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Educational Content */}
+              <Card className="p-6 gradient-secondary text-white">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-5 w-5" />
+                    <span className="font-semibold">Featured Guide</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">Building Unbreakable Habits</h4>
+                    <p className="text-sm text-white/90 mb-4">
+                      Learn the science-backed methods for creating lasting behavioral change.
+                    </p>
+                    <Button variant="glass" size="sm">
+                      Read Guide
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="podcasts" className="space-y-6">
+          {/* Podcast Filters */}
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Category:</span>
+            </div>
+            <div className="flex gap-2">
+              {podcastCategories.map(category => (
+                <Button
+                  key={category}
+                  variant={podcastFilter === category ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setPodcastFilter(category)}
+                >
+                  {category}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Podcasts Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredPodcasts.map(podcast => (
+              <Card key={podcast.id} className="p-0 overflow-hidden hover:shadow-medium transition-smooth group">
+                <div className="relative aspect-video">
+                  <img 
+                    src={podcast.thumbnail} 
+                    alt={podcast.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-smooth flex items-center justify-center">
+                    <Button 
+                      size="lg"
+                      className="rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm"
+                      onClick={() => window.open(podcast.youtubeUrl, '_blank')}
+                    >
+                      <Play className="h-6 w-6 text-white fill-white ml-1" />
+                    </Button>
+                  </div>
+                  {podcast.duration && (
+                    <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                      {podcast.duration}
                     </div>
                   )}
-
-                  {/* Post Actions */}
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="flex items-center gap-6">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={post.liked ? "text-red-500" : ""}
-                        onClick={() => toggleLike(post.id)}
-                      >
-                        <Heart className={`h-4 w-4 mr-2 ${post.liked ? "fill-current" : ""}`} />
-                        {post.likes}
-                      </Button>
-                      
-                      <Button variant="ghost" size="sm">
-                        <MessageCircle className="h-4 w-4 mr-2" />
-                        {post.comments}
-                      </Button>
-                      
-                      <Button variant="ghost" size="sm">
-                        <Share className="h-4 w-4 mr-2" />
-                        {post.shares}
-                      </Button>
-                    </div>
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="outline" className="text-xs">
+                      {podcast.category}
+                    </Badge>
                   </div>
+                  <h3 className="font-semibold text-lg mb-2 line-clamp-1">{podcast.title}</h3>
+                  <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{podcast.caption}</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full"
+                    onClick={() => window.open(podcast.youtubeUrl, '_blank')}
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Watch Now
+                  </Button>
                 </div>
               </Card>
             ))}
           </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Trending Topics */}
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Trending Topics</h3>
-            <div className="space-y-3">
-              {trendingTopics.map((topic, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">#{topic.name}</div>
-                    <div className="text-sm text-muted-foreground">{topic.posts} posts</div>
-                  </div>
-                  <Badge variant="outline" className="text-xs text-success">
-                    {topic.growth}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Top Contributors */}
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Top Contributors</h3>
-            <div className="space-y-3">
-              {topContributors.map((contributor, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  <div className="text-xl">{contributor.badge}</div>
-                  <div className="flex-1">
-                    <div className="font-medium">{contributor.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {contributor.points} points • {contributor.posts} posts
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Educational Content */}
-          <Card className="p-6 gradient-secondary text-white">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                <span className="font-semibold">Featured Guide</span>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-2">Building Unbreakable Habits</h4>
-                <p className="text-sm text-white/90 mb-4">
-                  Learn the science-backed methods for creating lasting behavioral change.
-                </p>
-                <Button variant="glass" size="sm">
-                  Read Guide
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
