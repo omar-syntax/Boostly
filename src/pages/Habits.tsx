@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -7,6 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { playCompletionSound } from "@/utils/sounds"
+import { getUserHabits, saveUserHabits } from "@/utils/storage"
+import { getHabitPoints } from "@/utils/points"
+import { useUser } from "@/contexts/UserContext"
 import { 
   Target, 
   Star, 
@@ -32,63 +36,9 @@ interface Habit {
   color: string
 }
 
-const initialHabits: Habit[] = [
-  {
-    id: "1",
-    title: "Morning Meditation",
-    description: "10 minutes of mindfulness meditation",
-    streak: 7,
-    bestStreak: 12,
-    completedToday: true,
-    weeklyTarget: 7,
-    weeklyProgress: 5,
-    points: 25,
-    category: "Mindfulness",
-    color: "bg-secondary"
-  },
-  {
-    id: "2",
-    title: "Read for 30 minutes",
-    description: "Read personal development or fiction",
-    streak: 4,
-    bestStreak: 8,
-    completedToday: false,
-    weeklyTarget: 5,
-    weeklyProgress: 3,
-    points: 30,
-    category: "Learning",
-    color: "bg-primary"
-  },
-  {
-    id: "3",
-    title: "Drink 8 glasses of water",
-    description: "Stay hydrated throughout the day",
-    streak: 12,
-    bestStreak: 15,
-    completedToday: true,
-    weeklyTarget: 7,
-    weeklyProgress: 6,
-    points: 15,
-    category: "Health",
-    color: "bg-success"
-  },
-  {
-    id: "4",
-    title: "Exercise",
-    description: "30 minutes of physical activity",
-    streak: 0,
-    bestStreak: 21,
-    completedToday: false,
-    weeklyTarget: 5,
-    weeklyProgress: 2,
-    points: 40,
-    category: "Fitness",
-    color: "bg-warning"
-  }
-]
-
 export default function Habits() {
-  const [habits, setHabits] = useState<Habit[]>(initialHabits)
+  const { user, updateUser } = useUser()
+  const [habits, setHabits] = useState<Habit[]>([])
   const [newHabitOpen, setNewHabitOpen] = useState(false)
   const [newHabitForm, setNewHabitForm] = useState({
     title: "",
@@ -101,10 +51,25 @@ export default function Habits() {
   const categories = ["Mindfulness", "Learning", "Health", "Fitness", "Productivity", "Personal"]
   const colors = ["bg-secondary", "bg-primary", "bg-success", "bg-warning", "bg-motivation", "bg-purple-500"]
 
+  // Load habits from localStorage on mount
+  useEffect(() => {
+    if (user?.id) {
+      const savedHabits = getUserHabits(user.id)
+      setHabits(savedHabits)
+    }
+  }, [user?.id])
+
+  // Save habits to localStorage whenever they change
+  useEffect(() => {
+    if (user?.id && habits.length >= 0) {
+      saveUserHabits(user.id, habits)
+    }
+  }, [habits, user?.id])
+
   const handleAddHabit = (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!newHabitForm.title.trim() || !newHabitForm.category) {
+    if (!newHabitForm.title.trim() || !newHabitForm.category || !user) {
       return
     }
 
@@ -117,7 +82,7 @@ export default function Habits() {
       completedToday: false,
       weeklyTarget: newHabitForm.weeklyTarget,
       weeklyProgress: 0,
-      points: newHabitForm.points,
+      points: 20, // Base habit points
       category: newHabitForm.category,
       color: colors[Math.floor(Math.random() * colors.length)]
     }
@@ -134,20 +99,58 @@ export default function Habits() {
   }
 
   const toggleHabit = (id: string) => {
-    setHabits(habits.map(habit => {
-      if (habit.id === id) {
-        const newCompletedToday = !habit.completedToday
+    const habit = habits.find(h => h.id === id)
+    if (!habit || !user) return
+    
+    const wasCompleted = habit.completedToday
+    const newStreak = !wasCompleted ? habit.streak + 1 : Math.max(0, habit.streak - 1)
+    const pointsToAward = getHabitPoints(newStreak)
+    
+    const updatedHabits = habits.map(h => {
+      if (h.id === id) {
+        const newCompletedToday = !h.completedToday
         return {
-          ...habit,
+          ...h,
           completedToday: newCompletedToday,
-          streak: newCompletedToday ? habit.streak + 1 : Math.max(0, habit.streak - 1),
+          streak: newCompletedToday ? h.streak + 1 : Math.max(0, h.streak - 1),
+          bestStreak: newCompletedToday && h.streak + 1 > h.bestStreak ? h.streak + 1 : h.bestStreak,
           weeklyProgress: newCompletedToday ? 
-            Math.min(habit.weeklyTarget, habit.weeklyProgress + 1) : 
-            Math.max(0, habit.weeklyProgress - 1)
+            Math.min(h.weeklyTarget, h.weeklyProgress + 1) : 
+            Math.max(0, h.weeklyProgress - 1)
         }
       }
-      return habit
-    }))
+      return h
+    })
+    
+    setHabits(updatedHabits)
+    
+    // Update user points and stats
+    if (!wasCompleted) {
+      // Completing habit
+      playCompletionSound()
+      updateUser({
+        points: user.points + pointsToAward,
+        weeklyPoints: user.weeklyPoints + pointsToAward,
+      })
+    } else {
+      // Uncompleting habit - remove points (use base points without streak bonus)
+      const basePoints = 20
+      updateUser({
+        points: Math.max(0, user.points - basePoints),
+        weeklyPoints: Math.max(0, user.weeklyPoints - basePoints),
+      })
+    }
+  }
+  
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   const completedToday = habits.filter(h => h.completedToday).length

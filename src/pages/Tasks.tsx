@@ -1,9 +1,13 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import { playCompletionSound } from "@/utils/sounds"
+import { getUserTasks, saveUserTasks } from "@/utils/storage"
+import { getTaskPoints } from "@/utils/points"
+import { useUser } from "@/contexts/UserContext"
 import { 
   Plus, 
   Star, 
@@ -28,46 +32,6 @@ interface Task {
   dueDate?: Date
 }
 
-const initialTasks: Task[] = [
-  {
-    id: "1",
-    title: "Complete project proposal",
-    description: "Write and submit the Q4 project proposal for the marketing campaign",
-    completed: false,
-    priority: "high",
-    category: "Work",
-    points: 50,
-    dueDate: new Date(Date.now() + 86400000)
-  },
-  {
-    id: "2", 
-    title: "Morning workout",
-    description: "30 minutes cardio and strength training",
-    completed: true,
-    priority: "medium",
-    category: "Health",
-    points: 30
-  },
-  {
-    id: "3",
-    title: "Read 20 pages",
-    description: "Continue reading 'Atomic Habits'",
-    completed: false,
-    priority: "medium", 
-    category: "Learning",
-    points: 20
-  },
-  {
-    id: "4",
-    title: "Grocery shopping",
-    description: "Buy ingredients for healthy meals this week",
-    completed: false,
-    priority: "low",
-    category: "Personal",
-    points: 15
-  }
-]
-
 const categories = ["All", "Work", "Health", "Learning", "Personal"]
 const priorityColors = {
   low: "bg-muted text-muted-foreground",
@@ -76,28 +40,78 @@ const priorityColors = {
 }
 
 export default function Tasks() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks)
+  const { user, updateUser } = useUser()
+  const [tasks, setTasks] = useState<Task[]>([])
   const [newTask, setNewTask] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [searchQuery, setSearchQuery] = useState("")
+  const [newTaskPriority, setNewTaskPriority] = useState<"low" | "medium" | "high">("medium")
+  const [newTaskCategory, setNewTaskCategory] = useState("Personal")
+
+  // Load tasks from localStorage on mount
+  useEffect(() => {
+    if (user?.id) {
+      const savedTasks = getUserTasks(user.id)
+      // Convert date strings back to Date objects
+      const tasksWithDates = savedTasks.map(task => ({
+        ...task,
+        dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+      }))
+      setTasks(tasksWithDates)
+    }
+  }, [user?.id])
+
+  // Save tasks to localStorage whenever they change
+  useEffect(() => {
+    if (user?.id && tasks.length >= 0) {
+      saveUserTasks(user.id, tasks)
+    }
+  }, [tasks, user?.id])
 
   const toggleTask = (id: string) => {
-    setTasks(tasks.map(task => 
+    const task = tasks.find(t => t.id === id)
+    if (!task || !user) return
+    
+    const wasCompleted = task.completed || false
+    const pointsToAward = getTaskPoints(task.priority)
+    
+    const updatedTasks = tasks.map(task => 
       task.id === id ? { ...task, completed: !task.completed } : task
-    ))
+    )
+    setTasks(updatedTasks)
+    
+    // Update user points and stats
+    if (!wasCompleted) {
+      // Completing task
+      playCompletionSound()
+      updateUser({
+        points: user.points + pointsToAward,
+        tasksCompleted: user.tasksCompleted + 1,
+        weeklyPoints: user.weeklyPoints + pointsToAward,
+      })
+    } else {
+      // Uncompleting task - remove points
+      updateUser({
+        points: Math.max(0, user.points - pointsToAward),
+        tasksCompleted: Math.max(0, user.tasksCompleted - 1),
+        weeklyPoints: Math.max(0, user.weeklyPoints - pointsToAward),
+      })
+    }
   }
 
   const addTask = () => {
-    if (!newTask.trim()) return
+    if (!newTask.trim() || !user) return
+    
+    const points = getTaskPoints(newTaskPriority)
     
     const task: Task = {
       id: Date.now().toString(),
       title: newTask,
       description: "",
       completed: false,
-      priority: "medium",
-      category: "Personal",
-      points: 25
+      priority: newTaskPriority,
+      category: newTaskCategory,
+      points,
     }
     
     setTasks([task, ...tasks])
@@ -112,6 +126,17 @@ export default function Tasks() {
 
   const completedToday = tasks.filter(task => task.completed).length
   const totalPoints = tasks.filter(task => task.completed).reduce((sum, task) => sum + task.points, 0)
+  
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -172,19 +197,41 @@ export default function Tasks() {
 
       {/* Add New Task */}
       <Card className="p-6">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <Input
-              placeholder="Add a new task..."
-              value={newTask}
-              onChange={(e) => setNewTask(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && addTask()}
-            />
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <Input
+                placeholder="Add a new task..."
+                value={newTask}
+                onChange={(e) => setNewTask(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addTask()}
+              />
+            </div>
+            <Button onClick={addTask} className="gradient-primary">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Task
+            </Button>
           </div>
-          <Button onClick={addTask} className="gradient-primary">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Task
-          </Button>
+          <div className="flex items-center gap-4">
+            <select
+              value={newTaskPriority}
+              onChange={(e) => setNewTaskPriority(e.target.value as "low" | "medium" | "high")}
+              className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="low">Low Priority ({getTaskPoints("low")} pts)</option>
+              <option value="medium">Medium Priority ({getTaskPoints("medium")} pts)</option>
+              <option value="high">High Priority ({getTaskPoints("high")} pts)</option>
+            </select>
+            <select
+              value={newTaskCategory}
+              onChange={(e) => setNewTaskCategory(e.target.value)}
+              className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {categories.filter(c => c !== "All").map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </Card>
 
