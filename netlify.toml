@@ -1,13 +1,33 @@
 [[headers]]
-  # Set proper MIME types for JavaScript modules
+  # Set proper MIME types for all JavaScript modules
   for = "/*.js"
   [headers.values]
-    Content-Type = "application/javascript"
-    Cross-Origin-Embedder-Policy = "require-corp"
-    Cross-Origin-Opener-Policy = "same-origin"
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
-  # Handle all static assets
+  # Set proper MIME types for JavaScript modules in assets
+  for = "/assets/*.js"
+  [headers.values]
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  # Set proper MIME types for CSS files
+  for = "/assets/*.css"
+  [headers.values]
+    Content-Type = "text/css; charset=utf-8"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  # Handle HTML files
+  for = "/*.html"
+  [headers.values]
+    Content-Type = "text/html; charset=utf-8"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  # Handle all other static assets
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
