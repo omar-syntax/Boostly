@@ -7,31 +7,9 @@
     Cross-Origin-Opener-Policy = "same-origin"
 
 [[headers]]
-  # Set proper MIME types for TypeScript files (if served)
-  for = "/*.ts"
-  [headers.values]
-    Content-Type = "application/typescript"
-    Cross-Origin-Embedder-Policy = "require-corp"
-    Cross-Origin-Opener-Policy = "same-origin"
-
-[[headers]]
-  # Set proper MIME types for TypeScript JSX files
-  for = "/*.tsx"
-  [headers.values]
-    Content-Type = "application/typescript; charset=utf-8"
-    Cross-Origin-Embedder-Policy = "require-corp"
-    Cross-Origin-Opener-Policy = "same-origin"
-
-[[headers]]
   # Handle all static assets
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
-
-[[redirects]]
-  # Handle SPA routing
-  from = "/*"
-  to = "/index.html"
-  status = 200
