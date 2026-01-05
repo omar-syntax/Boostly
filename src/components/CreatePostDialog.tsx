@@ -8,49 +8,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge"
 import { useUser } from "@/contexts/UserContext"
 import { useLocation } from "react-router-dom"
-import { Plus, MessageCircle, Trophy, Lightbulb, Video, Star } from "lucide-react"
+import { Plus, MessageCircle, Trophy, Lightbulb, Video, Star, Loader2 } from "lucide-react"
+import * as communityService from "@/services/community.service"
+import type { CommunityPost } from "@/types/community.types"
 
-interface Post {
-  id: string
-  author: {
-    name: string
-    initials: string
-    level: number
-    badge: string
-  }
-  content: string
-  type: "achievement" | "tip" | "motivation" | "video"
-  timestamp: Date
-  likes: number
-  comments: number
-  shares: number
-  liked: boolean
-  media?: {
-    type: "image" | "video"
-    url: string
-  }
-  achievement?: {
-    title: string
-    points: number
-    icon: string
-  }
+interface CreatePostDialogProps {
+  onPostCreated: (post: CommunityPost) => void
 }
 
 const postTypes = [
   { value: "tip", label: "💡 Share a Tip", icon: Lightbulb },
-  { value: "achievement", label: "🏆 Achievement", icon: Trophy }, 
+  { value: "achievement", label: "🏆 Achievement", icon: Trophy },
   { value: "motivation", label: "✨ Motivation", icon: Star },
   { value: "video", label: "📹 Video", icon: Video }
 ]
-
-interface CreatePostDialogProps {
-  onPostCreated: (post: Post) => void
-}
 
 export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
   const { user } = useUser()
   const location = useLocation()
   const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     content: "",
     type: "tip" as "achievement" | "tip" | "motivation" | "video",
@@ -94,50 +72,47 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!formData.content.trim()) {
+
+    if (!formData.content.trim() || !user?.id) {
       return
     }
 
-    const newPost: Post = {
-      id: Date.now().toString(),
-      author: {
-        name: user?.name || "You",
-        initials: user?.initials || "YU",
-        level: user?.level || 1,
-        badge: user?.badge || "Newcomer"
-      },
-      content: formData.content,
-      type: formData.type,
-      timestamp: new Date(),
-      likes: 0,
-      comments: 0,
-      shares: 0,
-      liked: false
-    }
+    setLoading(true)
+    setError(null)
 
-    // Add media for video posts
-    if (formData.type === "video" && formData.videoUrl.trim()) {
-      newPost.media = {
-        type: "video",
-        url: formData.videoUrl
+    try {
+      const { data: newPost, error: createError } = await communityService.createPost(user.id, {
+        content: formData.content,
+        type: formData.type,
+        mediaType: formData.type === "video" && formData.videoUrl ? "video" : undefined,
+        mediaUrl: formData.type === "video" ? formData.videoUrl : undefined,
+        achievementTitle: formData.type === "achievement" ? formData.achievementTitle : undefined,
+        achievementPoints: formData.type === "achievement" && formData.achievementPoints
+          ? parseInt(formData.achievementPoints)
+          : undefined,
+        achievementIcon: formData.type === "achievement" ? "🏆" : undefined,
+      })
+
+      if (createError) {
+        console.error('Error creating post:', createError)
+        setError('Failed to create post. Please try again.')
+        setLoading(false)
+        return
       }
-    }
 
-    // Add achievement data
-    if (formData.type === "achievement" && formData.achievementTitle.trim()) {
-      newPost.achievement = {
-        title: formData.achievementTitle,
-        points: parseInt(formData.achievementPoints) || 0,
-        icon: "🏆"
+      if (newPost) {
+        onPostCreated(newPost)
+        setOpen(false)
+        resetForm()
       }
+    } catch (err) {
+      console.error('Error creating post:', err)
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
+      setLoading(false)
     }
-
-    onPostCreated(newPost)
-    setOpen(false)
-    resetForm()
   }
 
   const selectedType = postTypes.find(type => type.value === formData.type)
@@ -150,7 +125,7 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
           Create Post
         </Button>
       </DialogTrigger>
-      
+
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -158,11 +133,11 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
             Create New Post
           </DialogTitle>
         </DialogHeader>
-        
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>Post Type</Label>
-            <Select value={formData.type} onValueChange={(value: "achievement" | "tip" | "motivation" | "video") => setFormData({...formData, type: value})}>
+            <Select value={formData.type} onValueChange={(value: "achievement" | "tip" | "motivation" | "video") => setFormData({ ...formData, type: value })}>
               <SelectTrigger>
                 <SelectValue placeholder="Select post type" />
               </SelectTrigger>
@@ -188,12 +163,12 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
               id="content"
               placeholder={
                 formData.type === "tip" ? "Share your productivity tip..." :
-                formData.type === "achievement" ? "Tell us about your achievement..." :
-                formData.type === "motivation" ? "Share some motivation..." :
-                "Tell us about your video..."
+                  formData.type === "achievement" ? "Tell us about your achievement..." :
+                    formData.type === "motivation" ? "Share some motivation..." :
+                      "Tell us about your video..."
               }
               value={formData.content}
-              onChange={(e) => setFormData({...formData, content: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               rows={4}
               required
             />
@@ -207,7 +182,7 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
                 id="videoUrl"
                 placeholder="https://youtu.be/VIDEO_ID or https://www.youtube.com/watch?v=VIDEO_ID"
                 value={formData.videoUrl}
-                onChange={(e) => setFormData({...formData, videoUrl: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
               />
             </div>
           )}
@@ -221,7 +196,7 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
                   id="achievementTitle"
                   placeholder="e.g., 30-Day Habit Streak"
                   value={formData.achievementTitle}
-                  onChange={(e) => setFormData({...formData, achievementTitle: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, achievementTitle: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
@@ -231,7 +206,7 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
                   type="number"
                   placeholder="100"
                   value={formData.achievementPoints}
-                  onChange={(e) => setFormData({...formData, achievementPoints: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, achievementPoints: e.target.value })}
                 />
               </div>
             </div>
@@ -248,21 +223,36 @@ export function CreatePostDialog({ onPostCreated }: CreatePostDialogProps) {
             </p>
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <div className="p-3 border border-destructive/50 bg-destructive/5 rounded-lg">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-4">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setOpen(false)}
               className="flex-1"
+              disabled={loading}
             >
               Cancel
             </Button>
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="flex-1 gradient-primary"
-              disabled={!formData.content.trim()}
+              disabled={!formData.content.trim() || loading}
             >
-              Share Post
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Posting...
+                </>
+              ) : (
+                'Share Post'
+              )}
             </Button>
           </div>
         </form>

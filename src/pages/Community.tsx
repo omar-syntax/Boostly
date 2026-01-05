@@ -7,11 +7,14 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CreatePostDialog } from "@/components/CreatePostDialog"
 import { useUser } from "@/contexts/UserContext"
-import { getPostComments, addComment, Comment } from "@/utils/comments"
-import { 
-  Heart, 
-  MessageCircle, 
-  Share, 
+import { useAuth } from "@/contexts/AuthContext"
+import * as communityService from "@/services/community.service"
+import type { CommunityPost, PostComment } from "@/types/community.types"
+import { supabase } from "@/lib/supabase"
+import {
+  Heart,
+  MessageCircle,
+  Share,
   Plus,
   Video,
   BookOpen,
@@ -22,35 +25,9 @@ import {
   TrendingUp,
   Play,
   Headphones,
-  Filter
+  Filter,
+  Loader2
 } from "lucide-react"
-
-interface Post {
-  id: string
-  author: {
-    name: string
-    initials: string
-    level: number
-    badge: string
-  }
-  content: string
-  type: "achievement" | "tip" | "motivation" | "video"
-  timestamp: Date
-  likes: number
-  comments: number
-  shares: number
-  liked: boolean
-  media?: {
-    type: "image" | "video"
-    url: string
-    thumbnail?: string
-  }
-  achievement?: {
-    title: string
-    points: number
-    icon: string
-  }
-}
 
 interface Podcast {
   id: string
@@ -61,62 +38,6 @@ interface Podcast {
   thumbnail: string
   duration?: string
 }
-
-const initialCommunityPosts: Post[] = [
-  {
-    id: "1",
-    author: { name: "Sarah Chen", initials: "SC", level: 15, badge: "Habit Master" },
-    content: "Just completed my 100th meditation session! 🧘‍♀️ The consistency has been life-changing. Who else is building a mindfulness practice?",
-    type: "achievement",
-    timestamp: new Date(Date.now() - 3600000),
-    likes: 42,
-    comments: 12,
-    shares: 8,
-    liked: false,
-    achievement: {
-      title: "Meditation Master",
-      points: 500,
-      icon: "🧘‍♀️"
-    }
-  },
-  {
-    id: "2",
-    author: { name: "Mike Johnson", initials: "MJ", level: 12, badge: "Focus Champion" },
-    content: "Pro tip: I use the 2-minute rule for building new habits. If it takes less than 2 minutes, do it immediately. If more, make it the first 2 minutes. Works every time! 💪",
-    type: "tip",
-    timestamp: new Date(Date.now() - 7200000),
-    likes: 67,
-    comments: 18,
-    shares: 24,
-    liked: true
-  },
-  {
-    id: "3",
-    author: { name: "Emma Rodriguez", initials: "ER", level: 18, badge: "Productivity Guru" },
-    content: "New video: 'How I Built a Morning Routine That Changed My Life' 📹 Sharing my complete step-by-step process!",
-    type: "video", 
-    timestamp: new Date(Date.now() - 10800000),
-    likes: 89,
-    comments: 31,
-    shares: 45,
-    liked: false,
-    media: {
-      type: "video",
-      url: "https://youtu.be/4pdeYkuJ-Zk?si=J6aWi1_pHbguLE6a"
-    }
-  },
-  {
-    id: "4",
-    author: { name: "Alex Kim", initials: "AK", level: 8, badge: "Goal Getter" },
-    content: "Remember: Progress over perfection. Every small step counts towards your bigger goals. You've got this! 🚀✨",
-    type: "motivation",
-    timestamp: new Date(Date.now() - 14400000),
-    likes: 156,
-    comments: 23,
-    shares: 67,
-    liked: true
-  }
-]
 
 const trendingTopics = [
   { name: "Morning Routines", posts: 234, growth: "+12%" },
@@ -144,7 +65,7 @@ const podcastsData: Podcast[] = [
     duration: "24:15"
   },
   {
-    id: "2", 
+    id: "2",
     title: "Building Wealth Through Faith",
     caption: "Biblical principles for financial stewardship and building generational wealth",
     category: "Religion",
@@ -154,18 +75,18 @@ const podcastsData: Podcast[] = [
   },
   {
     id: "3",
-    title: "The Entrepreneur's Mindset", 
+    title: "The Entrepreneur's Mindset",
     caption: "Essential mental frameworks for scaling your business and leading teams",
     category: "Business",
     youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-    thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg", 
+    thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
     duration: "18:30"
   },
   {
     id: "4",
     title: "Love in the Digital Age",
     caption: "Navigating modern relationships and building authentic connections",
-    category: "Relationships", 
+    category: "Relationships",
     youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
     thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg",
     duration: "27:20"
@@ -174,38 +95,110 @@ const podcastsData: Podcast[] = [
 
 export default function Community() {
   const { user } = useUser()
-  const [posts, setPosts] = useState<Post[]>(initialCommunityPosts)
+  const { session } = useAuth()
+  const [posts, setPosts] = useState<CommunityPost[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeFilter, setActiveFilter] = useState("All")
   const [podcastFilter, setPodcastFilter] = useState("All")
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set())
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
-  const [comments, setComments] = useState<Record<string, Comment[]>>({})
+  const [comments, setComments] = useState<Record<string, PostComment[]>>({})
+  const [loadingComments, setLoadingComments] = useState<Set<string>>(new Set())
 
-  // Load comments for all posts on mount
+  // Load posts from database
   useEffect(() => {
-    const loadedComments: Record<string, Comment[]> = {}
-    posts.forEach(post => {
-      loadedComments[post.id] = getPostComments(post.id)
-    })
-    setComments(loadedComments)
-  }, [posts])
+    if (!user?.id) return
 
-  const handlePostCreated = (newPost: Post) => {
+    const loadPosts = async () => {
+      setLoading(true)
+      setError(null)
+      const { data, error: fetchError } = await communityService.getPosts(user.id, 50, 0)
+
+      if (fetchError) {
+        console.error('Error loading posts:', fetchError)
+        setError('Failed to load posts. Please try again.')
+      } else if (data) {
+        setPosts(data)
+      }
+      setLoading(false)
+    }
+
+    loadPosts()
+
+    // Subscribe to new posts
+    const channel = communityService.subscribeToPostUpdates(async (newPost) => {
+      // Fetch the complete post data
+      const { data } = await communityService.getPostById(newPost.id, user.id)
+      if (data) {
+        setPosts(prev => [data, ...prev])
+      }
+    })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user?.id])
+
+  // Load comments when a post's comments are expanded
+  useEffect(() => {
+    expandedComments.forEach(async (postId) => {
+      if (!comments[postId] && !loadingComments.has(postId)) {
+        setLoadingComments(prev => new Set(prev).add(postId))
+        const { data } = await communityService.getPostComments(postId)
+        if (data) {
+          setComments(prev => ({ ...prev, [postId]: data }))
+        }
+        setLoadingComments(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(postId)
+          return newSet
+        })
+      }
+    })
+  }, [expandedComments])
+
+  const handlePostCreated = (newPost: CommunityPost) => {
     setPosts(prev => [newPost, ...prev])
-    // Initialize comments for new post
     setComments(prev => ({ ...prev, [newPost.id]: [] }))
   }
 
-  const toggleLike = (postId: string) => {
-    setPosts(posts.map(post => 
-      post.id === postId 
-        ? { 
-            ...post, 
-            liked: !post.liked,
-            likes: post.liked ? post.likes - 1 : post.likes + 1
+  const toggleLike = async (postId: string) => {
+    if (!user?.id) return
+
+    // Optimistic update
+    setPosts(posts.map(post =>
+      post.id === postId
+        ? {
+          ...post,
+          userHasLiked: !post.userHasLiked,
+          stats: {
+            ...post.stats,
+            likes: post.userHasLiked ? post.stats.likes - 1 : post.stats.likes + 1
           }
+        }
         : post
     ))
+
+    // Update database
+    const { error } = await communityService.toggleLike(postId, user.id)
+
+    if (error) {
+      console.error('Error toggling like:', error)
+      // Revert optimistic update
+      setPosts(posts.map(post =>
+        post.id === postId
+          ? {
+            ...post,
+            userHasLiked: !post.userHasLiked,
+            stats: {
+              ...post.stats,
+              likes: post.userHasLiked ? post.stats.likes + 1 : post.stats.likes - 1
+            }
+          }
+          : post
+      ))
+    }
   }
 
   const toggleComments = (postId: string) => {
@@ -220,50 +213,50 @@ export default function Community() {
     })
   }
 
-  const handleAddComment = (postId: string) => {
+  const handleAddComment = async (postId: string) => {
     const commentText = commentInputs[postId]?.trim()
-    if (!commentText || !user) return
+    if (!commentText || !user?.id) return
 
-    const newComment: Comment = {
-      id: Date.now().toString(),
-      postId,
-      authorId: user.id,
-      authorName: user.name,
-      authorInitials: user.initials,
-      authorPhoto: user.profilePhoto,
-      content: commentText,
-      timestamp: new Date(),
-      likes: 0,
+    setCommentInputs(prev => ({ ...prev, [postId]: '' }))
+
+    const { data: newComment, error } = await communityService.createComment(postId, user.id, commentText)
+
+    if (error) {
+      console.error('Error adding comment:', error)
+      return
     }
 
-    const updatedComments = addComment(postId, newComment)
-    setComments(prev => ({ ...prev, [postId]: updatedComments }))
-    setCommentInputs(prev => ({ ...prev, [postId]: '' }))
-    
-    // Update post comment count
-    setPosts(posts.map(post => 
-      post.id === postId 
-        ? { ...post, comments: post.comments + 1 }
-        : post
-    ))
+    if (newComment) {
+      setComments(prev => ({
+        ...prev,
+        [postId]: [...(prev[postId] || []), newComment]
+      }))
+
+      // Update post comment count
+      setPosts(posts.map(post =>
+        post.id === postId
+          ? { ...post, stats: { ...post.stats, comments: post.stats.comments + 1 } }
+          : post
+      ))
+    }
   }
 
   const filters = ["All", "Achievement", "Tips", "Motivation", "Videos"]
-  const filteredPosts = activeFilter === "All" 
-    ? posts 
+  const filteredPosts = activeFilter === "All"
+    ? posts
     : posts.filter(post => {
-        switch(activeFilter.toLowerCase()) {
-          case "achievement": return post.type === "achievement"
-          case "tips": return post.type === "tip"
-          case "motivation": return post.type === "motivation"
-          case "videos": return post.type === "video"
-          default: return true
-        }
-      })
+      switch (activeFilter.toLowerCase()) {
+        case "achievement": return post.type === "achievement"
+        case "tips": return post.type === "tip"
+        case "motivation": return post.type === "motivation"
+        case "videos": return post.type === "video"
+        default: return true
+      }
+    })
 
   const podcastCategories = ["All", "Productivity", "Business", "Religion", "Relationships"]
-  const filteredPodcasts = podcastFilter === "All" 
-    ? podcastsData 
+  const filteredPodcasts = podcastFilter === "All"
+    ? podcastsData
     : podcastsData.filter(podcast => podcast.category === podcastFilter)
 
   const getPostIcon = (type: string) => {
@@ -281,12 +274,12 @@ export default function Community() {
       /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
       /youtube\.com\/v\/([^&\n?#]+)/
     ]
-    
+
     for (const pattern of patterns) {
       const match = url.match(pattern)
       if (match) return match[1]
     }
-    
+
     return null
   }
 
@@ -294,7 +287,7 @@ export default function Community() {
     const now = new Date()
     const diff = now.getTime() - date.getTime()
     const hours = Math.floor(diff / (1000 * 60 * 60))
-    
+
     if (hours < 1) return "Just now"
     if (hours < 24) return `${hours}h ago`
     return date.toLocaleDateString()
@@ -308,7 +301,7 @@ export default function Community() {
           <h1 className="text-3xl font-bold">Community</h1>
           <p className="text-muted-foreground">Connect, share, and get inspired by fellow productivity enthusiasts</p>
         </div>
-        
+
         <CreatePostDialog onPostCreated={handlePostCreated} />
       </div>
 
@@ -397,192 +390,229 @@ export default function Community() {
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Main Feed */}
             <div className="lg:col-span-3 space-y-6">
+              {/* Loading State */}
+              {loading && (
+                <Card className="p-12 flex flex-col items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+                  <p className="text-muted-foreground">Loading posts...</p>
+                </Card>
+              )}
+
+              {/* Error State */}
+              {error && !loading && (
+                <Card className="p-6 border-destructive/50 bg-destructive/5">
+                  <p className="text-destructive">{error}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4"
+                    onClick={() => window.location.reload()}
+                  >
+                    Retry
+                  </Button>
+                </Card>
+              )}
+
+              {/* Empty State */}
+              {!loading && !error && filteredPosts.length === 0 && (
+                <Card className="p-12 flex flex-col items-center justify-center text-center">
+                  <MessageCircle className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No posts yet</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Be the first to share something with the community!
+                  </p>
+                  <CreatePostDialog onPostCreated={handlePostCreated} />
+                </Card>
+              )}
+
               {/* Posts Feed */}
-              <div className="space-y-4">
-                {filteredPosts.map(post => (
-                  <Card key={post.id} className="p-6 hover:shadow-medium transition-smooth">
-                    <div className="space-y-4">
-                      {/* Post Header */}
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <Avatar>
-                            <AvatarFallback className="gradient-primary text-white">
-                              {post.author.initials}
-                            </AvatarFallback>
-                          </Avatar>
-                          
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold">{post.author.name}</span>
-                              <Badge variant="outline" className="text-xs">
-                                Level {post.author.level}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs bg-warning/10 text-warning">
-                                {post.author.badge}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              {getPostIcon(post.type)}
-                              <span>{formatTimestamp(post.timestamp)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+              {!loading && !error && filteredPosts.length > 0 && (
+                <div className="space-y-4">
+                  {filteredPosts.map(post => (
+                    <Card key={post.id} className="p-6 hover:shadow-medium transition-smooth">
+                      <div className="space-y-4">
+                        {/* Post Header */}
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <Avatar>
+                              <AvatarFallback className="gradient-primary text-white">
+                                {post.author.initials}
+                              </AvatarFallback>
+                            </Avatar>
 
-                      {/* Achievement Badge */}
-                      {post.achievement && (
-                        <div className="p-4 rounded-lg gradient-success text-white">
-                          <div className="flex items-center gap-3">
-                            <div className="text-2xl">{post.achievement.icon}</div>
                             <div>
-                              <div className="font-semibold">Achievement Unlocked!</div>
-                              <div className="text-white/90">{post.achievement.title}</div>
-                              <div className="text-sm text-white/80">+{post.achievement.points} points</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold">{post.author.name}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  Level {post.author.level}
+                                </Badge>
+                                <Badge variant="outline" className="text-xs bg-warning/10 text-warning">
+                                  {post.author.badge}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                {getPostIcon(post.type)}
+                                <span>{formatTimestamp(post.createdAt)}</span>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      )}
 
-                      {/* Post Content */}
-                      <div className="text-foreground leading-relaxed">
-                        {post.content}
-                      </div>
-
-                      {/* YouTube Video Player */}
-                      {post.media?.type === "video" && post.media.url && (
-                        <div className="rounded-lg overflow-hidden aspect-video">
-                          {(() => {
-                            const videoId = getYouTubeVideoId(post.media.url)
-                            return videoId ? (
-                              <iframe
-                                src={`https://www.youtube.com/embed/${videoId}`}
-                                title="YouTube video player"
-                                frameBorder="0"
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                allowFullScreen
-                                className="w-full h-full"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-muted flex items-center justify-center">
-                                <p className="text-muted-foreground">Invalid video URL</p>
+                        {/* Achievement Badge */}
+                        {post.achievement && (
+                          <div className="p-4 rounded-lg gradient-success text-white">
+                            <div className="flex items-center gap-3">
+                              <div className="text-2xl">{post.achievement.icon}</div>
+                              <div>
+                                <div className="font-semibold">Achievement Unlocked!</div>
+                                <div className="text-white/90">{post.achievement.title}</div>
+                                <div className="text-sm text-white/80">+{post.achievement.points} points</div>
                               </div>
-                            )
-                          })()}
-                        </div>
-                      )}
-
-                      {/* Post Actions */}
-                      <div className="flex items-center justify-between pt-4 border-t">
-                        <div className="flex items-center gap-6">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={post.liked ? "text-red-500" : ""}
-                            onClick={() => toggleLike(post.id)}
-                          >
-                            <Heart className={`h-4 w-4 mr-2 ${post.liked ? "fill-current" : ""}`} />
-                            {post.likes}
-                          </Button>
-                          
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => toggleComments(post.id)}
-                          >
-                            <MessageCircle className="h-4 w-4 mr-2" />
-                            {comments[post.id]?.length || post.comments}
-                          </Button>
-                          
-                          <Button variant="ghost" size="sm">
-                            <Share className="h-4 w-4 mr-2" />
-                            {post.shares}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Comments Section */}
-                      {expandedComments.has(post.id) && (
-                        <div className="pt-4 border-t space-y-4">
-                          <div className="font-semibold text-sm mb-3">
-                            Comments ({comments[post.id]?.length || 0})
+                            </div>
                           </div>
-                          
-                          {/* Comments List */}
-                          <div className="space-y-3 max-h-96 overflow-y-auto">
-                            {comments[post.id]?.map(comment => (
-                              <div key={comment.id} className="flex gap-3">
+                        )}
+
+                        {/* Post Content */}
+                        <div className="text-foreground leading-relaxed">
+                          {post.content}
+                        </div>
+
+                        {/* YouTube Video Player */}
+                        {post.media?.type === "video" && post.media.url && (
+                          <div className="rounded-lg overflow-hidden aspect-video">
+                            {(() => {
+                              const videoId = getYouTubeVideoId(post.media.url)
+                              return videoId ? (
+                                <iframe
+                                  src={`https://www.youtube.com/embed/${videoId}`}
+                                  title="YouTube video player"
+                                  frameBorder="0"
+                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                  allowFullScreen
+                                  className="w-full h-full"
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-muted flex items-center justify-center">
+                                  <p className="text-muted-foreground">Invalid video URL</p>
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
+
+                        {/* Post Actions */}
+                        <div className="flex items-center justify-between pt-4 border-t">
+                          <div className="flex items-center gap-6">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={post.userHasLiked ? "text-red-500" : ""}
+                              onClick={() => toggleLike(post.id)}
+                            >
+                              <Heart className={`h-4 w-4 mr-2 ${post.userHasLiked ? "fill-current" : ""}`} />
+                              {post.stats.likes}
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleComments(post.id)}
+                            >
+                              <MessageCircle className="h-4 w-4 mr-2" />
+                              {comments[post.id]?.length || post.stats.comments}
+                            </Button>
+
+                            <Button variant="ghost" size="sm">
+                              <Share className="h-4 w-4 mr-2" />
+                              {post.stats.shares}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Comments Section */}
+                        {expandedComments.has(post.id) && (
+                          <div className="pt-4 border-t space-y-4">
+                            <div className="font-semibold text-sm mb-3">
+                              Comments ({comments[post.id]?.length || 0})
+                            </div>
+
+                            {/* Comments List */}
+                            <div className="space-y-3 max-h-96 overflow-y-auto">
+                              {comments[post.id]?.map(comment => (
+                                <div key={comment.id} className="flex gap-3">
+                                  <Avatar className="h-8 w-8">
+                                    {comment.author.profilePhoto ? (
+                                      <AvatarImage src={comment.author.profilePhoto} alt={comment.author.name} />
+                                    ) : null}
+                                    <AvatarFallback className="gradient-primary text-white text-xs">
+                                      {comment.author.initials}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1">
+                                    <div className="bg-muted rounded-lg p-3">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="font-semibold text-sm">{comment.author.name}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                          {formatTimestamp(comment.createdAt)}
+                                        </span>
+                                      </div>
+                                      <p className="text-sm">{comment.content}</p>
+                                    </div>
+                                    <Button variant="ghost" size="sm" className="h-6 px-2 mt-1">
+                                      <Heart className="h-3 w-3 mr-1" />
+                                      <span className="text-xs">Like</span>
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                              {(!comments[post.id] || comments[post.id].length === 0) && (
+                                <p className="text-sm text-muted-foreground text-center py-4">
+                                  No comments yet. Be the first to comment!
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Add Comment */}
+                            {user && (
+                              <div className="flex gap-2 pt-2">
                                 <Avatar className="h-8 w-8">
-                                  {comment.authorPhoto ? (
-                                    <AvatarImage src={comment.authorPhoto} alt={comment.authorName} />
+                                  {user.profilePhoto ? (
+                                    <AvatarImage src={user.profilePhoto} alt={user.name} />
                                   ) : null}
                                   <AvatarFallback className="gradient-primary text-white text-xs">
-                                    {comment.authorInitials}
+                                    {user.initials}
                                   </AvatarFallback>
                                 </Avatar>
-                                <div className="flex-1">
-                                  <div className="bg-muted rounded-lg p-3">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="font-semibold text-sm">{comment.authorName}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        {formatTimestamp(comment.timestamp)}
-                                      </span>
-                                    </div>
-                                    <p className="text-sm">{comment.content}</p>
-                                  </div>
-                                  <Button variant="ghost" size="sm" className="h-6 px-2 mt-1">
-                                    <Heart className="h-3 w-3 mr-1" />
-                                    <span className="text-xs">{comment.likes}</span>
+                                <div className="flex-1 flex gap-2">
+                                  <Input
+                                    placeholder="Write a comment..."
+                                    value={commentInputs[post.id] || ''}
+                                    onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
+                                    onKeyPress={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault()
+                                        handleAddComment(post.id)
+                                      }
+                                    }}
+                                    className="flex-1"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleAddComment(post.id)}
+                                    disabled={!commentInputs[post.id]?.trim()}
+                                  >
+                                    Post
                                   </Button>
                                 </div>
                               </div>
-                            ))}
-                            {(!comments[post.id] || comments[post.id].length === 0) && (
-                              <p className="text-sm text-muted-foreground text-center py-4">
-                                No comments yet. Be the first to comment!
-                              </p>
                             )}
                           </div>
-
-                          {/* Add Comment */}
-                          {user && (
-                            <div className="flex gap-2 pt-2">
-                              <Avatar className="h-8 w-8">
-                                {user.profilePhoto ? (
-                                  <AvatarImage src={user.profilePhoto} alt={user.name} />
-                                ) : null}
-                                <AvatarFallback className="gradient-primary text-white text-xs">
-                                  {user.initials}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="flex-1 flex gap-2">
-                                <Input
-                                  placeholder="Write a comment..."
-                                  value={commentInputs[post.id] || ''}
-                                  onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
-                                  onKeyPress={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                      e.preventDefault()
-                                      handleAddComment(post.id)
-                                    }
-                                  }}
-                                  className="flex-1"
-                                />
-                                <Button 
-                                  size="sm"
-                                  onClick={() => handleAddComment(post.id)}
-                                  disabled={!commentInputs[post.id]?.trim()}
-                                >
-                                  Post
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </Card>
-                ))}
-              </div>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Sidebar */}
@@ -671,13 +701,13 @@ export default function Community() {
             {filteredPodcasts.map(podcast => (
               <Card key={podcast.id} className="p-0 overflow-hidden hover:shadow-medium transition-smooth group">
                 <div className="relative aspect-video">
-                  <img 
-                    src={podcast.thumbnail} 
+                  <img
+                    src={podcast.thumbnail}
                     alt={podcast.title}
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-smooth flex items-center justify-center">
-                    <Button 
+                    <Button
                       size="lg"
                       className="rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm"
                       onClick={() => window.open(podcast.youtubeUrl, '_blank')}
@@ -699,9 +729,9 @@ export default function Community() {
                   </div>
                   <h3 className="font-semibold text-lg mb-2 line-clamp-1">{podcast.title}</h3>
                   <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{podcast.caption}</p>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full"
                     onClick={() => window.open(podcast.youtubeUrl, '_blank')}
                   >
