@@ -2,7 +2,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { 
+import {
   Bell,
   CheckCircle,
   Trophy,
@@ -22,7 +22,7 @@ const typeIcons = {
 
 const typeColors = {
   achievement: "text-warning",
-  reminder: "text-primary", 
+  reminder: "text-primary",
   social: "text-secondary",
   system: "text-muted-foreground"
 }
@@ -82,7 +82,7 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
-      
+
       {/* Panel */}
       <div className="absolute top-16 right-6 w-96">
         <Card className="glass-card border shadow-elegant">
@@ -97,7 +97,7 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
                 </Badge>
               )}
             </div>
-            
+
             <div className="flex items-center gap-2">
               {unreadCount > 0 && (
                 <Button variant="ghost" size="sm" onClick={markAllAsRead}>
@@ -113,98 +113,97 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
           {/* Content */}
           <ScrollArea className="h-[400px] w-full">
             <div className="p-2">
-                {notifications.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No notifications yet</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {notifications.map(notification => {
-                      const IconComponent = typeIcons[notification.type]
-                      return (
-                        <div 
-                          key={notification.id}
-                          className={`p-3 rounded-lg border transition-smooth hover:bg-accent/50 group ${
-                            !notification.read ? 'bg-primary/5 border-primary/20' : 'bg-background'
+              {notifications.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No notifications yet</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {notifications.map(notification => {
+                    const IconComponent = typeIcons[notification.type]
+                    return (
+                      <div
+                        key={notification.id}
+                        className={`p-3 rounded-lg border transition-smooth hover:bg-accent/50 group ${!notification.read ? 'bg-primary/5 border-primary/20' : 'bg-background'
                           }`}
-                          onClick={() => !notification.read && markAsRead(notification.id)}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className={`p-2 rounded-full bg-muted/50`}>
-                              <IconComponent className={`h-4 w-4 ${typeColors[notification.type]}`} />
+                        onClick={() => !notification.read && markAsRead(notification.id)}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`p-2 rounded-full bg-muted/50`}>
+                            <IconComponent className={`h-4 w-4 ${typeColors[notification.type]}`} />
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between">
+                              <h4 className={`text-sm font-medium ${!notification.read ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                {notification.title}
+                              </h4>
+
+                              <div className="flex items-center gap-1">
+                                {!notification.read && (
+                                  <div className="w-2 h-2 bg-motivation rounded-full" />
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteNotification(notification.id)
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
-                            
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
-                                <h4 className={`text-sm font-medium ${!notification.read ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                  {notification.title}
-                                </h4>
-                                
-                                <div className="flex items-center gap-1">
-                                  {!notification.read && (
-                                    <div className="w-2 h-2 bg-motivation rounded-full" />
-                                  )}
-                                  <Button 
-                                    variant="ghost" 
+
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {notification.message}
+                            </p>
+
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-xs text-muted-foreground">
+                                {formatTimestamp(notification.createdAt)}
+                              </span>
+
+                              <div className="flex items-center gap-2">
+                                {notification.type === "achievement" && (
+                                  <Button
+                                    variant="ghost"
                                     size="sm"
-                                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                                    className="h-7 text-xs"
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      deleteNotification(notification.id)
+                                      handleCelebrate(notification)
                                     }}
                                   >
-                                    <X className="h-3 w-3" />
+                                    <Share2 className="h-3 w-3 mr-1" />
+                                    Celebrate
                                   </Button>
-                                </div>
-                              </div>
-                              
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {notification.message}
-                              </p>
-                              
-                              <div className="flex items-center justify-between mt-2">
-                                <span className="text-xs text-muted-foreground">
-                                  {formatTimestamp(notification.timestamp)}
-                                </span>
-                                
-                                <div className="flex items-center gap-2">
-                                  {notification.type === "achievement" && (
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleCelebrate(notification)
-                                      }}
-                                    >
-                                      <Share2 className="h-3 w-3 mr-1" />
-                                      Celebrate
-                                    </Button>
-                                  )}
-                                  {notification.action && (
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        notification.action?.onClick()
-                                      }}
-                                    >
-                                      {notification.action.label}
-                                    </Button>
-                                  )}
-                                </div>
+                                )}
+                                {notification.action && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      notification.action?.onClick()
+                                    }}
+                                  >
+                                    {notification.action.label}
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </ScrollArea>
         </Card>

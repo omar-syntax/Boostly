@@ -7,8 +7,8 @@ export interface Notification {
   id: string
   title: string
   message: string
-  type: "achievement" | "reminder" | "social" | "system"
-  timestamp: Date
+  type: "achievement" | "reminder" | "social" | "system" | "comment" | "like"
+  createdAt: Date
   read: boolean
   action?: {
     label: string
@@ -18,13 +18,16 @@ export interface Notification {
     achievementType?: "badge" | "level"
     badgeName?: string
     level?: number
+    postId?: string
+    commentId?: string
+    actorId?: string
   }
 }
 
 interface NotificationContextType {
   notifications: Notification[]
   unreadCount: number
-  addNotification: (notification: Omit<Notification, "id" | "timestamp" | "read">) => void
+  addNotification: (notification: Omit<Notification, "id" | "createdAt" | "read">) => void
   markAsRead: (id: string) => void
   markAllAsRead: () => void
   deleteNotification: (id: string) => void
@@ -73,12 +76,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [session?.user?.id])
 
-  const addNotification = useCallback(async (notification: Omit<Notification, "id" | "timestamp" | "read">) => {
+  const addNotification = useCallback(async (notification: Omit<Notification, "id" | "createdAt" | "read">) => {
     if (!session?.user?.id) return
 
     // Create notification in database
     const { data, error } = await notificationService.createNotification({
-      user_id: session.user.id,
+      user_id: session?.user.id,
       type: notification.type,
       title: notification.title,
       message: notification.message,
