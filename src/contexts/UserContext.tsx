@@ -70,7 +70,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           tasksCompleted: data.tasks_completed,
           focusHours: data.focus_hours,
           avatar: data.avatar_url || "gradient-primary",
-          profilePhoto: data.avatar_url, // Add profilePhoto field
+          profilePhoto: data.avatar_url || undefined, // Map null to undefined
           rank: data.rank,
           previousRank: data.rank, // You might want to track this separately in DB or logic
           weeklyPoints: data.weekly_points

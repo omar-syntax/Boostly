@@ -8,7 +8,9 @@ import {
   Trophy,
   Target,
   X,
-  Share2
+  Share2,
+  MessageSquare,
+  Heart
 } from "lucide-react"
 import { useNotifications, Notification } from "@/contexts/NotificationContext"
 import { useNavigate } from "react-router-dom"
@@ -17,14 +19,18 @@ const typeIcons = {
   achievement: Trophy,
   reminder: Bell,
   social: Target,
-  system: CheckCircle
+  system: CheckCircle,
+  comment: MessageSquare,
+  like: Heart
 }
 
 const typeColors = {
   achievement: "text-warning",
   reminder: "text-primary",
   social: "text-secondary",
-  system: "text-muted-foreground"
+  system: "text-muted-foreground",
+  comment: "text-primary",
+  like: "text-destructive"
 }
 
 interface NotificationPanelProps {
@@ -64,13 +70,20 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
     onClose()
   }
 
-  const formatTimestamp = (date: Date) => {
+  const formatTimestamp = (date: any) => {
+    if (!date) return "Just now"
+
+    // Convert to Date if it's not already
+    const d = date instanceof Date ? date : new Date(date)
+    if (isNaN(d.getTime())) return "Recently"
+
     const now = new Date()
-    const diff = now.getTime() - date.getTime()
+    const diff = now.getTime() - d.getTime()
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
 
+    if (minutes < 1) return "Just now"
     if (minutes < 60) return `${minutes}m ago`
     if (hours < 24) return `${hours}h ago`
     return `${days}d ago`
@@ -121,7 +134,9 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
               ) : (
                 <div className="space-y-2">
                   {notifications.map(notification => {
-                    const IconComponent = typeIcons[notification.type]
+                    const IconComponent = typeIcons[notification.type as keyof typeof typeIcons] || Bell
+                    const colorClass = typeColors[notification.type as keyof typeof typeColors] || "text-primary"
+
                     return (
                       <div
                         key={notification.id}
@@ -131,7 +146,7 @@ export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
                       >
                         <div className="flex items-start gap-3">
                           <div className={`p-2 rounded-full bg-muted/50`}>
-                            <IconComponent className={`h-4 w-4 ${typeColors[notification.type]}`} />
+                            <IconComponent className={`h-4 w-4 ${colorClass}`} />
                           </div>
 
                           <div className="flex-1 min-w-0">

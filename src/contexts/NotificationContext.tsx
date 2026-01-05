@@ -27,7 +27,7 @@ export interface Notification {
 interface NotificationContextType {
   notifications: Notification[]
   unreadCount: number
-  addNotification: (notification: Omit<Notification, "id" | "createdAt" | "read">) => void
+  addNotification: (notification: Omit<Notification, "id" | "createdAt" | "read">) => Promise<void>
   markAsRead: (id: string) => void
   markAllAsRead: () => void
   deleteNotification: (id: string) => void
