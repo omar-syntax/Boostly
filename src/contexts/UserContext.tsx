@@ -70,6 +70,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
           tasksCompleted: data.tasks_completed,
           focusHours: data.focus_hours,
           avatar: data.avatar_url || "gradient-primary",
+          profilePhoto: data.avatar_url, // Add profilePhoto field
           rank: data.rank,
           previousRank: data.rank, // You might want to track this separately in DB or logic
           weeklyPoints: data.weekly_points
@@ -109,41 +110,46 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const updateUser = useCallback(async (updates: Partial<User>) => {
     if (!user || !session?.user) return
 
-    // Calculate new level/badge if points provided
-    let dbUpdates: any = {}
-
-    // Mapping frontend fields to DB fields
-    if (updates.points !== undefined) dbUpdates.points = updates.points
-    if (updates.streak !== undefined) dbUpdates.streak = updates.streak
-    if (updates.tasksCompleted !== undefined) dbUpdates.tasks_completed = updates.tasksCompleted
-    if (updates.focusHours !== undefined) dbUpdates.focus_hours = updates.focusHours
-    if (updates.weeklyPoints !== undefined) dbUpdates.weekly_points = updates.weeklyPoints
-    if (updates.name !== undefined) dbUpdates.full_name = updates.name
-    if (updates.avatar !== undefined) dbUpdates.avatar_url = updates.avatar
-
-    // Handle Level Update Logic
-    if (updates.points !== undefined) {
-      const newLevel = calculateLevel(updates.points)
-      dbUpdates.level = newLevel
-      // Badge is derived, so we don't strictly need to store it if we always calculate it, 
-      // but if we did store it in DB we would update it here.
-      // Current schema doesn't have 'badge' column, it relies on level.
-    }
-
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(dbUpdates)
-        .eq('id', user.id)
+      // Update local state immediately
+      setUser(prev => prev ? { ...prev, ...updates } : null)
 
-      if (error) throw error
+      // Calculate new level/badge if points provided
+      let dbUpdates: any = {}
 
-      // Optimistic update or wait for subscription? 
-      // Subscription will catch it, but optimistic is snappier.
-      // We'll let the subscription handle the update to keep state single-source-of-truth
+      // Mapping frontend fields to DB fields
+      if (updates.points !== undefined) dbUpdates.points = updates.points
+      if (updates.streak !== undefined) dbUpdates.streak = updates.streak
+      if (updates.tasksCompleted !== undefined) dbUpdates.tasks_completed = updates.tasksCompleted
+      if (updates.focusHours !== undefined) dbUpdates.focus_hours = updates.focusHours
+      if (updates.weeklyPoints !== undefined) dbUpdates.weekly_points = updates.weeklyPoints
+      if (updates.name !== undefined) dbUpdates.full_name = updates.name
+      if (updates.avatar !== undefined) dbUpdates.avatar_url = updates.avatar
+      if (updates.profilePhoto !== undefined) {
+        dbUpdates.avatar_url = updates.profilePhoto
+        // Also update avatar field for consistency
+        setUser(prev => prev ? { ...prev, avatar: updates.profilePhoto } : null)
+      }
 
+      // Handle Level Update Logic
+      if (updates.points !== undefined) {
+        const newLevel = calculateLevel(updates.points)
+        dbUpdates.level = newLevel
+      }
+
+      // Only update database if there are changes
+      if (Object.keys(dbUpdates).length > 0) {
+        const { error } = await supabase
+          .from('profiles')
+          .update(dbUpdates)
+          .eq('id', user.id)
+
+        if (error) {
+          console.error('Error updating user:', error)
+        }
+      }
     } catch (error) {
-      console.error("Error updating user:", error)
+      console.error('Error in updateUser:', error)
     }
   }, [user, session])
 
