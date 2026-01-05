@@ -5,14 +5,14 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { playCompletionSound } from "@/utils/sounds"
-import { getUserTasks, saveUserTasks } from "@/utils/storage"
 import { getTaskPoints } from "@/utils/points"
 import { useUser } from "@/contexts/UserContext"
-import { 
-  Plus, 
-  Star, 
-  Clock, 
-  Flag, 
+import { supabase } from "@/lib/supabase"
+import {
+  Plus,
+  Star,
+  Clock,
+  Flag,
   CheckCircle,
   Circle,
   Calendar,
@@ -56,50 +56,85 @@ export default function Tasks() {
   const [editPriority, setEditPriority] = useState<"low" | "medium" | "high">("medium")
   const [editCategory, setEditCategory] = useState("Personal")
 
-  // Load tasks from localStorage on mount
-  useEffect(() => {
-    if (user?.id) {
-      const savedTasks = getUserTasks(user.id)
-      // Convert date strings back to Date objects
-      const tasksWithDates = savedTasks.map(task => ({
+  const fetchTasks = async () => {
+    if (!user?.id) return
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching tasks:', error)
+      return
+    }
+
+    if (data) {
+      setTasks(data.map(task => ({
         ...task,
-        dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-      }))
-      setTasks(tasksWithDates)
+        dueDate: task.due_date ? new Date(task.due_date) : undefined
+      })))
+    }
+  }
+
+  // Load tasks on mount
+  useEffect(() => {
+    fetchTasks()
+  }, [user?.id])
+
+  // Realtime subscription for tasks
+  useEffect(() => {
+    if (!user?.id) return
+
+    const channel = supabase
+      .channel('tasks_channel')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'tasks',
+        filter: `user_id=eq.${user.id}`
+      }, () => {
+        fetchTasks()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
   }, [user?.id])
 
-  // Save tasks to localStorage whenever they change
-  useEffect(() => {
-    if (user?.id && tasks.length >= 0) {
-      saveUserTasks(user.id, tasks)
-    }
-  }, [tasks, user?.id])
-
-  const toggleTask = (id: string) => {
+  const toggleTask = async (id: string) => {
     const task = tasks.find(t => t.id === id)
     if (!task || !user) return
-    
-    const wasCompleted = task.completed || false
+
+    const wasCompleted = task.completed
     const pointsToAward = getTaskPoints(task.priority)
-    
-    const updatedTasks = tasks.map(task => 
-      task.id === id ? { ...task, completed: !task.completed } : task
+
+    // Optimistic update
+    const updatedTasks = tasks.map(t =>
+      t.id === id ? { ...t, completed: !t.completed } : t
     )
     setTasks(updatedTasks)
-    
+
+    // DB Update
+    await supabase
+      .from('tasks')
+      .update({ completed: !wasCompleted })
+      .eq('id', id)
+
     // Update user points and stats
     if (!wasCompleted) {
       // Completing task
       playCompletionSound()
-      updateUser({
+      await updateUser({
         points: user.points + pointsToAward,
         tasksCompleted: user.tasksCompleted + 1,
         weeklyPoints: user.weeklyPoints + pointsToAward,
       })
     } else {
       // Uncompleting task - remove points
-      updateUser({
+      await updateUser({
         points: Math.max(0, user.points - pointsToAward),
         tasksCompleted: Math.max(0, user.tasksCompleted - 1),
         weeklyPoints: Math.max(0, user.weeklyPoints - pointsToAward),
@@ -107,13 +142,13 @@ export default function Tasks() {
     }
   }
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!newTask.trim() || !user) return
-    
+
     const points = getTaskPoints(newTaskPriority)
-    
-    const task: Task = {
-      id: Date.now().toString(),
+
+    const newTaskObj = {
+      user_id: user.id,
       title: newTask,
       description: "",
       completed: false,
@@ -121,8 +156,16 @@ export default function Tasks() {
       category: newTaskCategory,
       points,
     }
-    
-    setTasks([task, ...tasks])
+
+    const { error } = await supabase
+      .from('tasks')
+      .insert([newTaskObj])
+
+    if (error) {
+      console.error('Error adding task:', error)
+      return
+    }
+
     setNewTask("")
   }
 
@@ -133,22 +176,27 @@ export default function Tasks() {
     setEditCategory(task.category)
   }
 
-  const saveEditTask = () => {
+  const saveEditTask = async () => {
     if (!editingTask || !editTitle.trim()) return
-    
-    const updatedTasks = tasks.map(task => 
-      task.id === editingTask 
-        ? { 
-            ...task, 
-            title: editTitle,
-            priority: editPriority,
-            category: editCategory,
-            points: getTaskPoints(editPriority)
-          }
-        : task
-    )
-    
-    setTasks(updatedTasks)
+
+    const points = getTaskPoints(editPriority)
+
+    // DB Update
+    const { error } = await supabase
+      .from('tasks')
+      .update({
+        title: editTitle,
+        priority: editPriority,
+        category: editCategory,
+        points
+      })
+      .eq('id', editingTask)
+
+    if (error) {
+      console.error('Error updating task:', error)
+      return
+    }
+
     setEditingTask(null)
     setEditTitle("")
   }
@@ -158,21 +206,30 @@ export default function Tasks() {
     setEditTitle("")
   }
 
-  const deleteTask = (id: string) => {
+  const deleteTask = async (id: string) => {
     const taskToDelete = tasks.find(t => t.id === id)
     if (!taskToDelete || !user) return
-    
+
+    // DB Delete
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting task:', error)
+      return
+    }
+
     // If task was completed, remove points
     if (taskToDelete.completed) {
       const pointsToRemove = taskToDelete.points
-      updateUser({
+      await updateUser({
         points: Math.max(0, user.points - pointsToRemove),
         tasksCompleted: Math.max(0, user.tasksCompleted - 1),
         weeklyPoints: Math.max(0, user.weeklyPoints - pointsToRemove),
       })
     }
-    
-    setTasks(tasks.filter(task => task.id !== id))
   }
 
   const filteredTasks = tasks.filter(task => {
@@ -183,7 +240,7 @@ export default function Tasks() {
 
   const completedToday = tasks.filter(task => task.completed).length
   const totalPoints = tasks.filter(task => task.completed).reduce((sum, task) => sum + task.points, 0)
-  
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -203,7 +260,7 @@ export default function Tasks() {
           <h1 className="text-3xl font-bold">Tasks</h1>
           <p className="text-muted-foreground">Manage your daily productivity</p>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm">
             <Star className="h-4 w-4 text-warning" />
@@ -245,7 +302,7 @@ export default function Tasks() {
               <Zap className="h-6 w-6 text-motivation" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{Math.round((completedToday / tasks.length) * 100)}%</div>
+              <div className="text-2xl font-bold">{tasks.length > 0 ? Math.round((completedToday / tasks.length) * 100) : 0}%</div>
               <div className="text-sm text-muted-foreground">Completion Rate</div>
             </div>
           </div>
@@ -378,23 +435,23 @@ export default function Tasks() {
                   onCheckedChange={() => toggleTask(task.id)}
                   className="mt-1"
                 />
-                
+
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center justify-between">
                     <h3 className={`font-medium ${task.completed ? 'line-through text-muted-foreground' : ''}`}>
                       {task.title}
                     </h3>
-                    
+
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className={priorityColors[task.priority]}>
                         <Flag className="h-3 w-3 mr-1" />
                         {task.priority}
                       </Badge>
-                      
+
                       <Badge variant="outline">
                         {task.category}
                       </Badge>
-                      
+
                       <div className="flex items-center gap-1 text-sm text-warning">
                         <Star className="h-3 w-3" />
                         {task.points}
@@ -421,13 +478,13 @@ export default function Tasks() {
                       </div>
                     </div>
                   </div>
-                  
+
                   {task.description && (
                     <p className={`text-sm ${task.completed ? 'line-through text-muted-foreground' : 'text-muted-foreground'}`}>
                       {task.description}
                     </p>
                   )}
-                  
+
                   {task.dueDate && (
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Calendar className="h-3 w-3" />
@@ -439,7 +496,7 @@ export default function Tasks() {
             )}
           </Card>
         ))}
-        
+
         {filteredTasks.length === 0 && (
           <Card className="p-8 text-center">
             <div className="text-muted-foreground">

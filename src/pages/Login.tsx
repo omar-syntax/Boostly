@@ -22,14 +22,22 @@ export default function Login() {
     setIsLoading(true)
 
     try {
-      const success = await login(email, password)
-      if (success) {
-        navigate("/")
+      const { error } = await login(email, password)
+
+      if (error) {
+        // Handle specific Supabase error messages
+        if (error.message.includes("Invalid login credentials")) {
+          setError("Invalid email or password. Please try again.")
+        } else if (error.message.includes("Email not confirmed")) {
+          setError("Please confirm your email address before logging in.")
+        } else {
+          setError(error.message || "An error occurred. Please try again.")
+        }
       } else {
-        setError("Invalid email or password. Please try again.")
+        navigate("/")
       }
     } catch (err) {
-      setError("An error occurred. Please try again.")
+      setError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }

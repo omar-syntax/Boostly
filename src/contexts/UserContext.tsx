@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
 import { calculateLevel, getBadgeForLevel } from "@/utils/points"
+import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/contexts/AuthContext"
 
 interface User {
   id: string
@@ -13,7 +15,7 @@ interface User {
   tasksCompleted: number
   focusHours: number
   avatar: string
-  profilePhoto?: string // Base64 encoded profile photo
+  profilePhoto?: string
   rank: number
   previousRank: number
   weeklyPoints: number
@@ -21,173 +23,142 @@ interface User {
 
 interface UserContextType {
   user: User | null
-  updateUser: (updates: Partial<User>) => void
-  loadUser: (userId: string) => void
+  updateUser: (updates: Partial<User>) => Promise<void>
+  refreshUser: () => Promise<void>
   clearUser: () => void
 }
-
-const defaultUser: User = {
-  id: "current",
-  name: "John Doe",
-  email: "john.doe@example.com",
-  initials: "JD",
-  level: 15,
-  points: 1240,
-  badge: "Rising Star",
-  streak: 12,
-  tasksCompleted: 89,
-  focusHours: 45,
-  avatar: "gradient-primary",
-  rank: 5,
-  previousRank: 6,
-  weeklyPoints: 320,
-}
-
-const STORAGE_KEY_PREFIX = "boostly_user_"
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export function UserProvider({ children }: { children: ReactNode }) {
+  const { session } = useAuth()
   const [user, setUser] = useState<User | null>(null)
 
-  const loadUser = useCallback((userId: string) => {
+  const fetchUser = useCallback(async (userId: string, email: string) => {
     try {
-      const userData = localStorage.getItem(`${STORAGE_KEY_PREFIX}${userId}`)
-      if (userData) {
-        const parsedUser = JSON.parse(userData)
-        setUser(parsedUser)
-      } else {
-        // If user data doesn't exist, create default
-        const users = JSON.parse(localStorage.getItem("boostly_users") || "[]")
-        const userAccount = users.find((u: any) => u.id === userId)
-        if (userAccount) {
-          const initials = userAccount.name
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+
+      if (error) {
+        console.error('Error fetching profile:', error)
+        return
+      }
+
+      if (data) {
+        // Map DB fields to User interface
+        const initials = data.full_name
+          ? data.full_name
             .split(" ")
             .map((n: string) => n[0])
             .join("")
             .toUpperCase()
             .slice(0, 2)
+          : "U"
 
-          const newUserData: User = {
-            id: userId,
-            name: userAccount.name,
-            email: userAccount.email,
-            initials,
-            level: 1,
-            points: 0,
-            badge: "Newcomer",
-            streak: 0,
-            tasksCompleted: 0,
-            focusHours: 0,
-            avatar: "gradient-primary",
-            rank: 999,
-            previousRank: 999,
-            weeklyPoints: 0,
-          }
-          setUser(newUserData)
-          localStorage.setItem(`${STORAGE_KEY_PREFIX}${userId}`, JSON.stringify(newUserData))
-        }
+        setUser({
+          id: data.id,
+          name: data.full_name || "User",
+          email: data.email || email,
+          initials,
+          level: data.level,
+          points: data.points,
+          badge: getBadgeForLevel(data.level), // Calculate badge dynamically or store it? Sticking to calc for now
+          streak: data.streak,
+          tasksCompleted: data.tasks_completed,
+          focusHours: data.focus_hours,
+          avatar: data.avatar_url || "gradient-primary",
+          rank: data.rank,
+          previousRank: data.rank, // You might want to track this separately in DB or logic
+          weeklyPoints: data.weekly_points
+        })
       }
     } catch (error) {
       console.error("Error loading user:", error)
     }
   }, [])
 
+  // Load user when session changes
+  useEffect(() => {
+    if (session?.user) {
+      fetchUser(session.user.id, session.user.email!)
+
+      // Realtime subscription
+      const channel = supabase
+        .channel('public:profiles')
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${session.user.id}`
+        }, (payload) => {
+          fetchUser(session.user.id, session.user.email!)
+        })
+        .subscribe()
+
+      return () => {
+        supabase.removeChannel(channel)
+      }
+    } else {
+      setUser(null)
+    }
+  }, [session, fetchUser])
+
+  const updateUser = useCallback(async (updates: Partial<User>) => {
+    if (!user || !session?.user) return
+
+    // Calculate new level/badge if points provided
+    let dbUpdates: any = {}
+
+    // Mapping frontend fields to DB fields
+    if (updates.points !== undefined) dbUpdates.points = updates.points
+    if (updates.streak !== undefined) dbUpdates.streak = updates.streak
+    if (updates.tasksCompleted !== undefined) dbUpdates.tasks_completed = updates.tasksCompleted
+    if (updates.focusHours !== undefined) dbUpdates.focus_hours = updates.focusHours
+    if (updates.weeklyPoints !== undefined) dbUpdates.weekly_points = updates.weeklyPoints
+    if (updates.name !== undefined) dbUpdates.full_name = updates.name
+    if (updates.avatar !== undefined) dbUpdates.avatar_url = updates.avatar
+
+    // Handle Level Update Logic
+    if (updates.points !== undefined) {
+      const newLevel = calculateLevel(updates.points)
+      dbUpdates.level = newLevel
+      // Badge is derived, so we don't strictly need to store it if we always calculate it, 
+      // but if we did store it in DB we would update it here.
+      // Current schema doesn't have 'badge' column, it relies on level.
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update(dbUpdates)
+        .eq('id', user.id)
+
+      if (error) throw error
+
+      // Optimistic update or wait for subscription? 
+      // Subscription will catch it, but optimistic is snappier.
+      // We'll let the subscription handle the update to keep state single-source-of-truth
+
+    } catch (error) {
+      console.error("Error updating user:", error)
+    }
+  }, [user, session])
+
+  const refreshUser = async () => {
+    if (session?.user) {
+      await fetchUser(session.user.id, session.user.email!)
+    }
+  }
+
   const clearUser = useCallback(() => {
     setUser(null)
   }, [])
 
-  // Load user from localStorage on mount
-  useEffect(() => {
-    const authData = localStorage.getItem("boostly_auth")
-    if (authData) {
-      try {
-        const auth = JSON.parse(authData)
-        if (auth.isAuthenticated && auth.email) {
-          // Find user by email
-          const users = JSON.parse(localStorage.getItem("boostly_users") || "[]")
-          const userAccount = users.find((u: any) => u.email === auth.email)
-          if (userAccount) {
-            loadUser(userAccount.id)
-          }
-        }
-      } catch (error) {
-        console.error("Error loading user:", error)
-      }
-    }
-  }, [loadUser])
-
-  // Listen for login/logout events
-  useEffect(() => {
-    const handleLogin = (event: CustomEvent) => {
-      loadUser(event.detail.userId)
-    }
-
-    const handleLogout = () => {
-      clearUser()
-    }
-
-    window.addEventListener("userLoggedIn", handleLogin as EventListener)
-    window.addEventListener("userLoggedOut", handleLogout)
-
-    return () => {
-      window.removeEventListener("userLoggedIn", handleLogin as EventListener)
-      window.removeEventListener("userLoggedOut", handleLogout)
-    }
-  }, [loadUser, clearUser])
-
-  const updateUser = useCallback((updates: Partial<User>) => {
-    if (!user) return
-    
-    // Store previous values for comparison
-    const previousLevel = user.level
-    const previousBadge = user.badge
-    
-    let updatedUser = { ...user, ...updates }
-    
-    // Recalculate level and badge if points changed
-    if (updates.points !== undefined) {
-      const newLevel = calculateLevel(updatedUser.points)
-      const newBadge = getBadgeForLevel(newLevel)
-      updatedUser = {
-        ...updatedUser,
-        level: newLevel,
-        badge: newBadge,
-      }
-    }
-    
-    setUser(updatedUser)
-    
-    // Save to localStorage
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${user.id}`, JSON.stringify(updatedUser))
-    } catch (error) {
-      console.error("Error saving user:", error)
-    }
-    
-    // Trigger notifications if level or badge changed
-    // We'll handle this in a useEffect to ensure notifications context is available
-    if (updates.points !== undefined) {
-      const newLevel = calculateLevel(updatedUser.points)
-      const newBadge = getBadgeForLevel(newLevel)
-      
-      // Dispatch custom event for level/badge changes so notification system can listen
-      if (newLevel > previousLevel) {
-        window.dispatchEvent(new CustomEvent("userLevelUp", { 
-          detail: { oldLevel: previousLevel, newLevel, newBadge } 
-        }))
-      }
-      
-      if (newBadge !== previousBadge) {
-        window.dispatchEvent(new CustomEvent("userBadgeGained", { 
-          detail: { oldBadge: previousBadge, newBadge, level: newLevel } 
-        }))
-      }
-    }
-  }, [user])
-
   return (
-    <UserContext.Provider value={{ user, updateUser, loadUser, clearUser }}>
+    <UserContext.Provider value={{ user, updateUser, refreshUser, clearUser }}>
       {children}
     </UserContext.Provider>
   )
@@ -200,15 +171,3 @@ export function useUser() {
   }
   return context
 }
-
-// Helper function to get user ID from email
-export function getUserIdFromEmail(email: string): string | null {
-  try {
-    const users = JSON.parse(localStorage.getItem("boostly_users") || "[]")
-    const user = users.find((u: any) => u.email === email)
-    return user ? user.id : null
-  } catch {
-    return null
-  }
-}
-

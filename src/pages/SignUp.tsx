@@ -49,14 +49,23 @@ export default function SignUp() {
     setIsLoading(true)
 
     try {
-      const success = await signup(name, email, password)
-      if (success) {
-        navigate("/")
+      const { error } = await signup(name, email, password)
+
+      if (error) {
+        // Handle specific Supabase error messages
+        if (error.message.includes("User already registered")) {
+          setError("An account with this email already exists. Please login instead.")
+        } else if (error.message.includes("Password should be at least")) {
+          setError("Password must be at least 6 characters long.")
+        } else {
+          setError(error.message || "An error occurred. Please try again.")
+        }
       } else {
-        setError("An account with this email already exists")
+        // Redirect to email confirmation page
+        navigate("/email-confirmation")
       }
     } catch (err) {
-      setError("An error occurred. Please try again.")
+      setError("An unexpected error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }

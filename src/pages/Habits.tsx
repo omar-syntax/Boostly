@@ -8,12 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { playCompletionSound } from "@/utils/sounds"
-import { getUserHabits, saveUserHabits } from "@/utils/storage"
 import { getHabitPoints } from "@/utils/points"
 import { useUser } from "@/contexts/UserContext"
-import { 
-  Target, 
-  Star, 
+import { supabase } from "@/lib/supabase"
+import {
+  Target,
+  Star,
   Plus,
   Calendar,
   Flame,
@@ -51,43 +51,92 @@ export default function Habits() {
   const categories = ["Mindfulness", "Learning", "Health", "Fitness", "Productivity", "Personal"]
   const colors = ["bg-secondary", "bg-primary", "bg-success", "bg-warning", "bg-motivation", "bg-purple-500"]
 
-  // Load habits from localStorage on mount
-  useEffect(() => {
-    if (user?.id) {
-      const savedHabits = getUserHabits(user.id)
-      setHabits(savedHabits)
+  const fetchHabits = async () => {
+    if (!user?.id) return
+
+    // 1. Fetch Habits
+    const { data: habitsData, error: habitsError } = await supabase
+      .from('habits')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+
+    if (habitsError) {
+      console.error('Error fetching habits:', habitsError)
+      return
     }
+
+    if (!habitsData) return
+
+    // 2. Fetch Completion for Today for all habits
+    // Simple way: get all logs for today for this user
+    const today = new Date().toISOString().split('T')[0]
+    const { data: logsData, error: logsError } = await supabase
+      .from('habit_logs')
+      .select('habit_id')
+      .eq('user_id', user.id)
+      .gte('completed_at', `${today}T00:00:00`)
+      .lte('completed_at', `${today}T23:59:59`)
+
+    const completedHabitIds = new Set(logsData?.map(log => log.habit_id) || [])
+
+    // 3. Map to UI Model
+    const mappedHabits = habitsData.map(h => ({
+      id: h.id,
+      title: h.title,
+      description: h.description,
+      streak: h.current_streak,
+      bestStreak: h.best_streak,
+      completedToday: completedHabitIds.has(h.id),
+      weeklyTarget: h.weekly_target,
+      weeklyProgress: 0, // TODO: Calculate this from logs if needed, for now simplified
+      points: h.points,
+      category: h.category,
+      color: h.color || colors[0]
+    }))
+
+    setHabits(mappedHabits)
+  }
+
+  // Load habits on mount
+  useEffect(() => {
+    fetchHabits()
   }, [user?.id])
 
-  // Save habits to localStorage whenever they change
-  useEffect(() => {
-    if (user?.id && habits.length >= 0) {
-      saveUserHabits(user.id, habits)
-    }
-  }, [habits, user?.id])
-
-  const handleAddHabit = (e: React.FormEvent) => {
+  const handleAddHabit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!newHabitForm.title.trim() || !newHabitForm.category || !user) {
       return
     }
 
-    const newHabit: Habit = {
-      id: Date.now().toString(),
+    const color = colors[Math.floor(Math.random() * colors.length)]
+
+    const newHabitObj = {
+      user_id: user.id,
       title: newHabitForm.title,
       description: newHabitForm.description,
-      streak: 0,
-      bestStreak: 0,
-      completedToday: false,
-      weeklyTarget: newHabitForm.weeklyTarget,
-      weeklyProgress: 0,
-      points: 20, // Base habit points
       category: newHabitForm.category,
-      color: colors[Math.floor(Math.random() * colors.length)]
+      weekly_target: newHabitForm.weeklyTarget,
+      points: newHabitForm.points,
+      color,
+      current_streak: 0,
+      best_streak: 0
     }
 
-    setHabits(prev => [...prev, newHabit])
+    const { data, error } = await supabase
+      .from('habits')
+      .insert([newHabitObj])
+      .select()
+
+    if (error) {
+      console.error("Error creating habit", error)
+      return
+    }
+
+    // Refresh list
+    fetchHabits()
+
     setNewHabitOpen(false)
     setNewHabitForm({
       title: "",
@@ -98,14 +147,15 @@ export default function Habits() {
     })
   }
 
-  const toggleHabit = (id: string) => {
+  const toggleHabit = async (id: string) => {
     const habit = habits.find(h => h.id === id)
     if (!habit || !user) return
-    
+
     const wasCompleted = habit.completedToday
     const newStreak = !wasCompleted ? habit.streak + 1 : Math.max(0, habit.streak - 1)
     const pointsToAward = getHabitPoints(newStreak)
-    
+
+    // Optimistic Update
     const updatedHabits = habits.map(h => {
       if (h.id === id) {
         const newCompletedToday = !h.completedToday
@@ -114,34 +164,64 @@ export default function Habits() {
           completedToday: newCompletedToday,
           streak: newCompletedToday ? h.streak + 1 : Math.max(0, h.streak - 1),
           bestStreak: newCompletedToday && h.streak + 1 > h.bestStreak ? h.streak + 1 : h.bestStreak,
-          weeklyProgress: newCompletedToday ? 
-            Math.min(h.weeklyTarget, h.weeklyProgress + 1) : 
-            Math.max(0, h.weeklyProgress - 1)
         }
       }
       return h
     })
-    
     setHabits(updatedHabits)
-    
-    // Update user points and stats
+
+    // DB Updates
     if (!wasCompleted) {
-      // Completing habit
+      // Mark as completed
+      // 1. Insert Log
+      await supabase.from('habit_logs').insert([{
+        habit_id: id,
+        user_id: user.id
+      }])
+
+      // 2. Update Streak
+      const newBestStreak = Math.max(habit.bestStreak, newStreak)
+      await supabase.from('habits').update({
+        current_streak: newStreak,
+        best_streak: newBestStreak,
+        last_completed_at: new Date().toISOString()
+      }).eq('id', id)
+
+      // 3. User Points
       playCompletionSound()
-      updateUser({
+      await updateUser({
         points: user.points + pointsToAward,
         weeklyPoints: user.weeklyPoints + pointsToAward,
       })
+
     } else {
-      // Uncompleting habit - remove points (use base points without streak bonus)
-      const basePoints = 20
-      updateUser({
+      // Un-complete
+      // 1. Delete Log (for today)
+      const today = new Date().toISOString().split('T')[0]
+      await supabase.from('habit_logs')
+        .delete()
+        .eq('habit_id', id)
+        .eq('user_id', user.id)
+        .gte('completed_at', `${today}T00:00:00`)
+        .lte('completed_at', `${today}T23:59:59`)
+
+      // 2. Revert Streak
+      // This is tricky because we don't know the state before EXACTLY without re-fetching logs history
+      // simplified: 
+      await supabase.from('habits').update({
+        current_streak: newStreak
+        // We usually don't revert best_streak
+      }).eq('id', id)
+
+      // 3. Revert User Points
+      const basePoints = 20 // Approx revert
+      await updateUser({
         points: Math.max(0, user.points - basePoints),
         weeklyPoints: Math.max(0, user.weeklyPoints - basePoints),
       })
     }
   }
-  
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -155,7 +235,7 @@ export default function Habits() {
 
   const completedToday = habits.filter(h => h.completedToday).length
   const totalPoints = habits.filter(h => h.completedToday).reduce((sum, h) => sum + h.points, 0)
-  const averageStreak = habits.reduce((sum, h) => sum + h.streak, 0) / habits.length
+  const averageStreak = habits.length > 0 ? habits.reduce((sum, h) => sum + h.streak, 0) / habits.length : 0
 
   return (
     <div className="space-y-6">
@@ -165,7 +245,7 @@ export default function Habits() {
           <h1 className="text-3xl font-bold">Habit Tracker</h1>
           <p className="text-muted-foreground">Build consistent habits for lasting success</p>
         </div>
-        
+
         <Dialog open={newHabitOpen} onOpenChange={setNewHabitOpen}>
           <DialogTrigger asChild>
             <Button className="gradient-primary">
@@ -173,7 +253,7 @@ export default function Habits() {
               New Habit
             </Button>
           </DialogTrigger>
-          
+
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -181,7 +261,7 @@ export default function Habits() {
                 Create New Habit
               </DialogTitle>
             </DialogHeader>
-            
+
             <form onSubmit={handleAddHabit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="habit-title">Habit Title *</Label>
@@ -189,7 +269,7 @@ export default function Habits() {
                   id="habit-title"
                   placeholder="e.g., Morning Meditation, Daily Reading"
                   value={newHabitForm.title}
-                  onChange={(e) => setNewHabitForm({...newHabitForm, title: e.target.value})}
+                  onChange={(e) => setNewHabitForm({ ...newHabitForm, title: e.target.value })}
                   required
                 />
               </div>
@@ -200,14 +280,14 @@ export default function Habits() {
                   id="habit-description"
                   placeholder="Brief description of your habit..."
                   value={newHabitForm.description}
-                  onChange={(e) => setNewHabitForm({...newHabitForm, description: e.target.value})}
+                  onChange={(e) => setNewHabitForm({ ...newHabitForm, description: e.target.value })}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Category *</Label>
-                  <Select value={newHabitForm.category} onValueChange={(value) => setNewHabitForm({...newHabitForm, category: value})}>
+                  <Select value={newHabitForm.category} onValueChange={(value) => setNewHabitForm({ ...newHabitForm, category: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
@@ -227,7 +307,7 @@ export default function Habits() {
                     min="1"
                     max="7"
                     value={newHabitForm.weeklyTarget}
-                    onChange={(e) => setNewHabitForm({...newHabitForm, weeklyTarget: parseInt(e.target.value) || 7})}
+                    onChange={(e) => setNewHabitForm({ ...newHabitForm, weeklyTarget: parseInt(e.target.value) || 7 })}
                   />
                 </div>
               </div>
@@ -240,21 +320,21 @@ export default function Habits() {
                   min="5"
                   max="100"
                   value={newHabitForm.points}
-                  onChange={(e) => setNewHabitForm({...newHabitForm, points: parseInt(e.target.value) || 25})}
+                  onChange={(e) => setNewHabitForm({ ...newHabitForm, points: parseInt(e.target.value) || 25 })}
                 />
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button 
-                  type="button" 
-                  variant="outline" 
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setNewHabitOpen(false)}
                   className="flex-1"
                 >
                   Cancel
                 </Button>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   className="flex-1 gradient-primary"
                   disabled={!newHabitForm.title.trim() || !newHabitForm.category}
                 >
@@ -322,7 +402,7 @@ export default function Habits() {
         <div className="mb-6">
           <h3 className="text-lg font-semibold mb-2">Today's Progress</h3>
           <div className="flex items-center gap-4">
-            <Progress value={(completedToday / habits.length) * 100} className="flex-1" />
+            <Progress value={habits.length > 0 ? (completedToday / habits.length) * 100 : 0} className="flex-1" />
             <span className="text-sm text-muted-foreground">
               {completedToday} of {habits.length} habits completed
             </span>
@@ -338,8 +418,8 @@ export default function Habits() {
                 className={`w-16 h-16 rounded-full mb-3 ${habit.completedToday ? habit.color : ''} transition-bounce`}
                 onClick={() => toggleHabit(habit.id)}
               >
-                {habit.completedToday ? 
-                  <CheckCircle className="h-8 w-8" /> : 
+                {habit.completedToday ?
+                  <CheckCircle className="h-8 w-8" /> :
                   <Circle className="h-8 w-8" />
                 }
               </Button>
@@ -363,15 +443,15 @@ export default function Habits() {
                   <h3 className="font-semibold text-lg">{habit.title}</h3>
                   <p className="text-sm text-muted-foreground">{habit.description}</p>
                 </div>
-                
+
                 <Button
                   variant={habit.completedToday ? "default" : "outline"}
                   size="icon"
                   className={`${habit.completedToday ? habit.color : ''} transition-bounce`}
                   onClick={() => toggleHabit(habit.id)}
                 >
-                  {habit.completedToday ? 
-                    <CheckCircle className="h-5 w-5" /> : 
+                  {habit.completedToday ?
+                    <CheckCircle className="h-5 w-5" /> :
                     <Circle className="h-5 w-5" />
                   }
                 </Button>
@@ -412,8 +492,8 @@ export default function Habits() {
                     {habit.weeklyProgress}/{habit.weeklyTarget}
                   </span>
                 </div>
-                <Progress 
-                  value={(habit.weeklyProgress / habit.weeklyTarget) * 100} 
+                <Progress
+                  value={(habit.weeklyProgress / habit.weeklyTarget) * 100}
                   className="h-2"
                 />
               </div>
