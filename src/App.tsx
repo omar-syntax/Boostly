@@ -20,6 +20,7 @@ import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
 import EmailConfirmation from "./pages/EmailConfirmation";
+import AuthCallback from "./pages/AuthCallback";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,7 @@ const App = () => (
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<SignUp />} />
                   <Route path="/email-confirmation" element={<EmailConfirmation />} />
+                  <Route path="/auth/callback" element={<AuthCallback />} />
 
                   {/* Protected routes */}
                   <Route
