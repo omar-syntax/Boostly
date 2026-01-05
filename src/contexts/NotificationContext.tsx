@@ -1,4 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
+import { useAuth } from "@/contexts/AuthContext"
+import { supabase } from "@/lib/supabase"
+import * as notificationService from "@/services/notification.service"
 
 export interface Notification {
   id: string
@@ -30,54 +33,71 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined)
 
-const STORAGE_KEY = "boostly_notifications"
-
 export function NotificationProvider({ children }: { children: ReactNode }) {
+  const { session } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // Load notifications from localStorage on mount
+  // Load notifications from database when user logs in
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        // Convert timestamp strings back to Date objects
-        const notificationsWithDates = parsed.map((n: any) => ({
-          ...n,
-          timestamp: new Date(n.timestamp),
-        }))
-        setNotifications(notificationsWithDates)
+    if (!session?.user?.id) {
+      setNotifications([])
+      setLoading(false)
+      return
+    }
+
+    const loadNotifications = async () => {
+      setLoading(true)
+      const { data, error } = await notificationService.getNotifications(session.user.id)
+
+      if (error) {
+        console.error('Error loading notifications:', error)
+      } else if (data) {
+        setNotifications(data)
       }
-    } catch (error) {
-      console.error("Error loading notifications:", error)
-    }
-  }, [])
-
-  // Save notifications to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications))
-    } catch (error) {
-      console.error("Error saving notifications:", error)
-    }
-  }, [notifications])
-
-  const addNotification = useCallback((notification: Omit<Notification, "id" | "timestamp" | "read">) => {
-    const newNotification: Notification = {
-      ...notification,
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      timestamp: new Date(),
-      read: false,
+      setLoading(false)
     }
 
-    setNotifications((prev) => [newNotification, ...prev])
-  }, [])
+    loadNotifications()
+
+    // Subscribe to real-time notifications
+    const channel = notificationService.subscribeToNotifications(
+      session.user.id,
+      (newNotification) => {
+        setNotifications(prev => [newNotification, ...prev])
+      }
+    )
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [session?.user?.id])
+
+  const addNotification = useCallback(async (notification: Omit<Notification, "id" | "timestamp" | "read">) => {
+    if (!session?.user?.id) return
+
+    // Create notification in database
+    const { data, error } = await notificationService.createNotification({
+      user_id: session.user.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      metadata: notification.metadata,
+    })
+
+    if (error) {
+      console.error('Error creating notification:', error)
+      return
+    }
+
+    // Notification will be added via real-time subscription
+  }, [session?.user?.id])
 
   // Listen for user level up and badge gained events
   useEffect(() => {
     const handleLevelUp = (event: CustomEvent) => {
       const { oldLevel, newLevel, newBadge } = event.detail
-      
+
       addNotification({
         title: "🎉 Level Up!",
         message: `Congratulations! You've reached Level ${newLevel}! Keep up the amazing work!`,
@@ -91,7 +111,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     const handleBadgeGained = (event: CustomEvent) => {
       const { oldBadge, newBadge, level } = event.detail
-      
+
       // Only notify if it's a new badge (not the initial badge)
       if (oldBadge && oldBadge !== newBadge) {
         addNotification({
@@ -116,23 +136,67 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [addNotification])
 
-  const markAsRead = useCallback((id: string) => {
+  const markAsRead = useCallback(async (id: string) => {
+    if (!session?.user?.id) return
+
+    // Optimistic update
     setNotifications((prev) =>
       prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif))
     )
-  }, [])
 
-  const markAllAsRead = useCallback(() => {
+    // Update database
+    const { error } = await notificationService.markAsRead(id, session.user.id)
+
+    if (error) {
+      console.error('Error marking as read:', error)
+      // Revert optimistic update
+      setNotifications((prev) =>
+        prev.map((notif) => (notif.id === id ? { ...notif, read: false } : notif))
+      )
+    }
+  }, [session?.user?.id])
+
+  const markAllAsRead = useCallback(async () => {
+    if (!session?.user?.id) return
+
+    // Optimistic update
     setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })))
-  }, [])
 
-  const deleteNotification = useCallback((id: string) => {
+    // Update database
+    const { error } = await notificationService.markAllAsRead(session.user.id)
+
+    if (error) {
+      console.error('Error marking all as read:', error)
+    }
+  }, [session?.user?.id])
+
+  const deleteNotification = useCallback(async (id: string) => {
+    if (!session?.user?.id) return
+
+    // Optimistic update
     setNotifications((prev) => prev.filter((notif) => notif.id !== id))
-  }, [])
 
-  const clearAll = useCallback(() => {
+    // Delete from database
+    const { error } = await notificationService.deleteNotification(id, session.user.id)
+
+    if (error) {
+      console.error('Error deleting notification:', error)
+    }
+  }, [session?.user?.id])
+
+  const clearAll = useCallback(async () => {
+    if (!session?.user?.id) return
+
+    // Optimistic update
     setNotifications([])
-  }, [])
+
+    // Clear from database
+    const { error } = await notificationService.clearAllNotifications(session.user.id)
+
+    if (error) {
+      console.error('Error clearing notifications:', error)
+    }
+  }, [session?.user?.id])
 
   const unreadCount = notifications.filter((n) => !n.read).length
 

@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useUser } from "@/contexts/UserContext"
+import { ImageCropDialog } from "@/components/ImageCropDialog"
+import * as storageService from "@/services/storage.service"
+import { useToast } from "@/hooks/use-toast"
 import {
   User,
   Mail,
@@ -29,6 +32,7 @@ import {
   Zap,
   Camera,
   Upload,
+  Loader2,
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LineChart, Line } from "recharts"
 
@@ -51,10 +55,14 @@ const recentAchievements = [
 export default function Profile() {
   const { user, updateUser } = useUser()
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [isEditing, setIsEditing] = useState(false)
   const [editedName, setEditedName] = useState(user?.name || "")
   const [editedEmail, setEditedEmail] = useState(user?.email || "")
   const [photoPreview, setPhotoPreview] = useState<string | null>(user?.profilePhoto || null)
+  const [cropDialogOpen, setCropDialogOpen] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Sync form fields when user data changes
@@ -72,31 +80,105 @@ export default function Profile() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file')
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file",
+        variant: "destructive",
+      })
       return
     }
 
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image size should be less than 5MB')
+      toast({
+        title: "File too large",
+        description: "Image size should be less than 5MB",
+        variant: "destructive",
+      })
       return
     }
 
-    // Read file as base64
+    // Read file and open crop dialog
     const reader = new FileReader()
     reader.onloadend = () => {
-      const base64String = reader.result as string
-      setPhotoPreview(base64String)
-      updateUser({ profilePhoto: base64String })
+      setSelectedImage(reader.result as string)
+      setCropDialogOpen(true)
     }
     reader.readAsDataURL(file)
   }
 
-  const handleRemovePhoto = () => {
-    setPhotoPreview(null)
-    updateUser({ profilePhoto: undefined })
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+  const handleCropComplete = async (croppedImage: Blob) => {
+    if (!user?.id) return
+
+    setUploading(true)
+    try {
+      // Upload to Supabase Storage
+      const { url, error } = await storageService.uploadProfilePhoto(
+        user.id,
+        croppedImage
+      )
+
+      if (error) {
+        toast({
+          title: "Upload failed",
+          description: "Failed to upload photo. Please try again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (url) {
+        // Update user profile with new photo URL
+        await updateUser({ avatar: url })
+        setPhotoPreview(url)
+        toast({
+          title: "Success!",
+          description: "Profile photo updated successfully",
+        })
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      })
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleRemovePhoto = async () => {
+    if (!user?.id) return
+
+    setUploading(true)
+    try {
+      // Delete from Supabase Storage
+      await storageService.deleteProfilePhoto(user.id)
+
+      // Update user profile
+      await updateUser({ avatar: undefined })
+      setPhotoPreview(null)
+
+      toast({
+        title: "Photo removed",
+        description: "Profile photo has been removed",
+      })
+    } catch (error) {
+      console.error('Error removing photo:', error)
+      toast({
+        title: "Error",
+        description: "Failed to remove photo",
+        variant: "destructive",
+      })
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 
@@ -225,9 +307,19 @@ export default function Profile() {
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
                 className="border-white/30 text-white hover:bg-white/10"
+                disabled={uploading}
               >
-                <Camera className="h-4 w-4 mr-2" />
-                {user.profilePhoto ? 'Change Photo' : 'Upload Photo'}
+                {uploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-4 w-4 mr-2" />
+                    {user.profilePhoto ? 'Change Photo' : 'Upload Photo'}
+                  </>
+                )}
               </Button>
               {user.profilePhoto && (
                 <Button
@@ -235,6 +327,7 @@ export default function Profile() {
                   size="sm"
                   onClick={handleRemovePhoto}
                   className="border-white/30 text-white hover:bg-white/10"
+                  disabled={uploading}
                 >
                   <X className="h-4 w-4 mr-2" />
                   Remove
@@ -411,14 +504,27 @@ export default function Profile() {
                 {user.rank < user.previousRank
                   ? `Moved up ${user.previousRank - user.rank} position${user.previousRank - user.rank > 1 ? "s" : ""}`
                   : user.rank > user.previousRank
-                  ? `Moved down ${user.rank - user.previousRank} position${user.rank - user.previousRank > 1 ? "s" : ""}`
-                  : "No change"}
+                    ? `Moved down ${user.rank - user.previousRank} position${user.rank - user.previousRank > 1 ? "s" : ""}`
+                    : "No change"}
               </span>
             </div>
             <Progress value={(100 - user.rank) * 10} className="h-2" />
           </div>
         </div>
       </Card>
+
+      {/* Image Crop Dialog */}
+      {selectedImage && (
+        <ImageCropDialog
+          open={cropDialogOpen}
+          onClose={() => {
+            setCropDialogOpen(false)
+            setSelectedImage(null)
+          }}
+          imageSrc={selectedImage}
+          onCropComplete={handleCropComplete}
+        />
+      )}
     </div>
   )
 }
