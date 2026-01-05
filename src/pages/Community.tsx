@@ -435,6 +435,9 @@ export default function Community() {
                         <div className="flex items-start justify-between">
                           <div className="flex items-start gap-3">
                             <Avatar>
+                              {post.author.profilePhoto ? (
+                                <AvatarImage src={post.author.profilePhoto} alt={post.author.name} />
+                              ) : null}
                               <AvatarFallback className="gradient-primary text-white">
                                 {post.author.initials}
                               </AvatarFallback>

@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { 
-  BarChart3, 
-  TrendingUp, 
-  Target, 
-  Timer, 
+import {
+  BarChart3,
+  TrendingUp,
+  Target,
+  Timer,
   CheckSquare,
   Star,
   Trophy,
@@ -17,29 +17,61 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LineCh
 import { Link } from "react-router-dom"
 import { BadgeDialog } from "@/components/BadgeDialog"
 import { useUser } from "@/contexts/UserContext"
-import { getUserTasks, getUserHabits } from "@/utils/storage"
+import { supabase } from "@/lib/supabase"
+
 
 export default function Dashboard() {
   const { user } = useUser()
   const [tasks, setTasks] = useState<any[]>([])
   const [habits, setHabits] = useState<any[]>([])
-  
+
   const today = new Date()
-  const todayStr = today.toLocaleDateString('en-US', { 
-    weekday: 'long', 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
+  const todayStr = today.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
   })
 
-  // Load tasks and habits
+  // Load tasks and habits from Supabase
   useEffect(() => {
-    if (user?.id) {
-      const userTasks = getUserTasks(user.id)
-      const userHabits = getUserHabits(user.id)
-      setTasks(userTasks)
-      setHabits(userHabits)
+    if (!user?.id) return
+
+    const fetchDashboardData = async () => {
+      // Fetch tasks
+      const { data: tasksData } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('user_id', user.id)
+
+      if (tasksData) setTasks(tasksData)
+
+      // Fetch habits and their logs for today
+      const { data: habitsData } = await supabase
+        .from('habits')
+        .select('*')
+        .eq('user_id', user.id)
+
+      if (habitsData) {
+        const todayStr = new Date().toISOString().split('T')[0]
+        const { data: logsData } = await supabase
+          .from('habit_logs')
+          .select('habit_id')
+          .eq('user_id', user.id)
+          .gte('completed_at', `${todayStr}T00:00:00`)
+          .lte('completed_at', `${todayStr}T23:59:59`)
+
+        const completedHabitIds = new Set(logsData?.map(log => log.habit_id) || [])
+
+        const mappedHabits = habitsData.map(h => ({
+          ...h,
+          completedToday: completedHabitIds.has(h.id)
+        }))
+        setHabits(mappedHabits)
+      }
     }
+
+    fetchDashboardData()
   }, [user?.id])
 
   // Get greeting based on time of day
@@ -53,23 +85,23 @@ export default function Dashboard() {
 
   // Get first name from user's full name
   const firstName = user?.name?.split(" ")[0] || "there"
-  
+
   // Calculate real stats
   const tasksCompletedToday = tasks.filter(t => t.completed).length
   const habitsCompletedToday = habits.filter(h => h.completedToday).length
   const totalHabits = habits.length
-  
+
   // Calculate category breakdown
   const taskPoints = tasks.filter(t => t.completed).reduce((sum, t) => sum + (t.points || 0), 0)
   const habitPoints = habits.filter(h => h.completedToday).reduce((sum, h) => sum + (h.points || 0), 0)
   const totalPointsFromActivities = taskPoints + habitPoints
-  
+
   const categoryData = totalPointsFromActivities > 0 ? [
     { name: 'Tasks', value: Math.round((taskPoints / totalPointsFromActivities) * 100), color: 'hsl(var(--success))' },
     { name: 'Habits', value: Math.round((habitPoints / totalPointsFromActivities) * 100), color: 'hsl(var(--secondary))' },
     { name: 'Focus', value: 0, color: 'hsl(var(--warning))' },
   ].filter(item => item.value > 0) : []
-  
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -162,7 +194,7 @@ export default function Dashboard() {
             <h3 className="text-lg font-semibold">Activity Summary</h3>
             <p className="text-sm text-muted-foreground">Your productivity overview</p>
           </div>
-          
+
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
               <div className="flex items-center gap-3">
@@ -194,7 +226,7 @@ export default function Dashboard() {
             <h3 className="text-lg font-semibold">Level Progress</h3>
             <p className="text-sm text-muted-foreground">Level {user.level} - {user.badge}</p>
           </div>
-          
+
           <div className="space-y-4">
             <div className="text-center">
               <div className="text-4xl font-bold text-primary mb-2">{user.points}</div>
@@ -215,7 +247,7 @@ export default function Dashboard() {
             <h3 className="text-lg font-semibold">Activity Breakdown</h3>
             <p className="text-sm text-muted-foreground">Where your points come from</p>
           </div>
-          
+
           {categoryData.length > 0 ? (
             <>
               <div className="flex items-center justify-center">
@@ -241,8 +273,8 @@ export default function Dashboard() {
                 {categoryData.map((item, index) => (
                   <div key={index} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full" 
+                      <div
+                        className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: item.color }}
                       ></div>
                       <span className="text-sm">{item.name}</span>
