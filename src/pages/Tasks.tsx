@@ -34,7 +34,6 @@ interface Task {
   category: string
   points: number
   dueDate?: Date
-  task_date: string
 }
 
 const categories = ["All", "Work", "Health", "Learning", "Personal"]
@@ -66,11 +65,16 @@ export default function Tasks() {
 
     const targetDate = date || selectedDate
 
+    // Create range for the selected day
+    const startOfDay = `${targetDate}T00:00:00.000Z`
+    const endOfDay = `${targetDate}T23:59:59.999Z`
+
     const { data, error } = await supabase
       .from('tasks')
       .select('*')
       .eq('user_id', user.id)
-      .eq('task_date', targetDate)
+      .gte('created_at', startOfDay)
+      .lte('created_at', endOfDay)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -163,7 +167,6 @@ export default function Tasks() {
       priority: newTaskPriority,
       category: newTaskCategory,
       points,
-      task_date: selectedDate, // Store the date the task was created for
     }
 
     const { error } = await supabase
