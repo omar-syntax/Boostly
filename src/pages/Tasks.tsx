@@ -34,6 +34,7 @@ interface Task {
   category: string
   points: number
   dueDate?: Date
+  task_date: string
 }
 
 const categories = ["All", "Work", "Health", "Learning", "Personal"]
@@ -56,13 +57,20 @@ export default function Tasks() {
   const [editPriority, setEditPriority] = useState<"low" | "medium" | "high">("medium")
   const [editCategory, setEditCategory] = useState("Personal")
 
-  const fetchTasks = async () => {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [showHistory, setShowHistory] = useState(false)
+  const isToday = selectedDate === new Date().toISOString().split('T')[0]
+
+  const fetchTasks = async (date?: string) => {
     if (!user?.id) return
+
+    const targetDate = date || selectedDate
 
     const { data, error } = await supabase
       .from('tasks')
       .select('*')
       .eq('user_id', user.id)
+      .eq('task_date', targetDate)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -78,10 +86,10 @@ export default function Tasks() {
     }
   }
 
-  // Load tasks on mount
+  // Load tasks on mount and when date changes
   useEffect(() => {
     fetchTasks()
-  }, [user?.id])
+  }, [user?.id, selectedDate])
 
   // Realtime subscription for tasks
   useEffect(() => {
@@ -155,6 +163,7 @@ export default function Tasks() {
       priority: newTaskPriority,
       category: newTaskCategory,
       points,
+      task_date: selectedDate, // Store the date the task was created for
     }
 
     const { error } = await supabase
@@ -258,14 +267,34 @@ export default function Tasks() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Tasks</h1>
-          <p className="text-muted-foreground">Manage your daily productivity</p>
+          <p className="text-muted-foreground">
+            {isToday ? "Manage your daily productivity" : `Viewing tasks for ${new Date(selectedDate).toLocaleDateString()}`}
+          </p>
         </div>
 
         <div className="flex items-center gap-4">
+          {!isToday && (
+            <Button
+              variant="outline"
+              onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+              size="sm"
+            >
+              Back to Today
+            </Button>
+          )}
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="w-40 h-9"
+            />
+          </div>
           <div className="flex items-center gap-2 text-sm">
             <Star className="h-4 w-4 text-warning" />
             <span className="font-semibold">{totalPoints}</span>
-            <span className="text-muted-foreground">points today</span>
+            <span className="text-muted-foreground">{isToday ? "points today" : "points earned"}</span>
           </div>
         </div>
       </div>
@@ -279,7 +308,7 @@ export default function Tasks() {
             </div>
             <div>
               <div className="text-2xl font-bold">{completedToday}</div>
-              <div className="text-sm text-muted-foreground">Completed Today</div>
+              <div className="text-sm text-muted-foreground">{isToday ? "Completed Today" : "Completed"}</div>
             </div>
           </div>
         </Card>
@@ -309,45 +338,47 @@ export default function Tasks() {
         </Card>
       </div>
 
-      {/* Add New Task */}
-      <Card className="p-6">
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Add a new task..."
-                value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addTask()}
-              />
+      {/* Add New Task - Only visible for today or if explicitly allowed */}
+      {isToday && (
+        <Card className="p-6">
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <Input
+                  placeholder="Add a new task..."
+                  value={newTask}
+                  onChange={(e) => setNewTask(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addTask()}
+                />
+              </div>
+              <Button onClick={addTask} className="gradient-primary">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Task
+              </Button>
             </div>
-            <Button onClick={addTask} className="gradient-primary">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Task
-            </Button>
+            <div className="flex items-center gap-4">
+              <select
+                value={newTaskPriority}
+                onChange={(e) => setNewTaskPriority(e.target.value as "low" | "medium" | "high")}
+                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="low">Low Priority ({getTaskPoints("low")} pts)</option>
+                <option value="medium">Medium Priority ({getTaskPoints("medium")} pts)</option>
+                <option value="high">High Priority ({getTaskPoints("high")} pts)</option>
+              </select>
+              <select
+                value={newTaskCategory}
+                onChange={(e) => setNewTaskCategory(e.target.value)}
+                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {categories.filter(c => c !== "All").map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <select
-              value={newTaskPriority}
-              onChange={(e) => setNewTaskPriority(e.target.value as "low" | "medium" | "high")}
-              className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="low">Low Priority ({getTaskPoints("low")} pts)</option>
-              <option value="medium">Medium Priority ({getTaskPoints("medium")} pts)</option>
-              <option value="high">High Priority ({getTaskPoints("high")} pts)</option>
-            </select>
-            <select
-              value={newTaskCategory}
-              onChange={(e) => setNewTaskCategory(e.target.value)}
-              className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {categories.filter(c => c !== "All").map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-4">
@@ -432,8 +463,9 @@ export default function Tasks() {
               <div className="flex items-start gap-4">
                 <Checkbox
                   checked={task.completed}
-                  onCheckedChange={() => toggleTask(task.id)}
-                  className="mt-1"
+                  onCheckedChange={() => isToday && toggleTask(task.id)}
+                  className={`mt-1 ${!isToday ? 'cursor-not-allowed opacity-50' : ''}`}
+                  disabled={!isToday}
                 />
 
                 <div className="flex-1 space-y-2">
@@ -457,25 +489,27 @@ export default function Tasks() {
                         {task.points}
                       </div>
 
-                      {/* Action Buttons */}
-                      <div className="flex items-center gap-1">
-                        <Button
-                          onClick={() => startEditTask(task)}
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0 hover:bg-primary/10"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          onClick={() => deleteTask(task.id)}
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0 hover:bg-destructive/10 text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      {/* Action Buttons - Only for current day */}
+                      {isToday && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            onClick={() => startEditTask(task)}
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 hover:bg-primary/10"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            onClick={() => deleteTask(task.id)}
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 hover:bg-destructive/10 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
