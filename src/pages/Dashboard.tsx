@@ -24,9 +24,11 @@ export default function Dashboard() {
   const { user } = useUser()
   const [tasks, setTasks] = useState<any[]>([])
   const [habits, setHabits] = useState<any[]>([])
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const isToday = selectedDate === new Date().toISOString().split('T')[0]
 
-  const today = new Date()
-  const todayStr = today.toLocaleDateString('en-US', {
+  const displayDate = new Date(selectedDate)
+  const todayStr = displayDate.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -38,28 +40,32 @@ export default function Dashboard() {
     if (!user?.id) return
 
     const fetchDashboardData = async () => {
-      // Fetch tasks
+      const startOfDay = `${selectedDate}T00:00:00.000Z`
+      const endOfDay = `${selectedDate}T23:59:59.999Z`
+
+      // Fetch tasks for the selected day
       const { data: tasksData } = await supabase
         .from('tasks')
         .select('*')
         .eq('user_id', user.id)
+        .gte('created_at', startOfDay)
+        .lte('created_at', endOfDay)
 
       if (tasksData) setTasks(tasksData)
 
-      // Fetch habits and their logs for today
+      // Fetch habits and their logs for the selected day
       const { data: habitsData } = await supabase
         .from('habits')
         .select('*')
         .eq('user_id', user.id)
 
       if (habitsData) {
-        const todayStr = new Date().toISOString().split('T')[0]
         const { data: logsData } = await supabase
           .from('habit_logs')
           .select('habit_id')
           .eq('user_id', user.id)
-          .gte('completed_at', `${todayStr}T00:00:00`)
-          .lte('completed_at', `${todayStr}T23:59:59`)
+          .gte('completed_at', startOfDay)
+          .lte('completed_at', endOfDay)
 
         const completedHabitIds = new Set(logsData?.map(log => log.habit_id) || [])
 
@@ -72,10 +78,10 @@ export default function Dashboard() {
     }
 
     fetchDashboardData()
-  }, [user?.id])
+  }, [user?.id, selectedDate])
 
   // Get greeting based on time of day
-  const hour = today.getHours()
+  const hour = new Date().getHours()
   let greeting = "Good morning"
   if (hour >= 12 && hour < 17) {
     greeting = "Good afternoon"
@@ -120,13 +126,30 @@ export default function Dashboard() {
         <div className="relative z-10">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold mb-2">{greeting}, {firstName}! 👋</h1>
-              <p className="text-white/90 text-lg">{todayStr}</p>
-              <p className="text-white/80 mt-2">Ready to boost your productivity today?</p>
+              <h1 className="text-3xl font-bold mb-2">{isToday ? `${greeting}, ${firstName}! 👋` : `Reviewing ${todayStr}`}</h1>
+              <p className="text-white/90 text-lg">{isToday ? todayStr : "Historical Insights"}</p>
+              <div className="flex items-center gap-3 mt-4">
+                <Calendar className="h-5 w-5 text-white/80" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-white/20 border-none rounded-md px-3 py-1 text-white focus:outline-none focus:ring-2 focus:ring-white/50 cursor-pointer"
+                />
+                {!isToday && (
+                  <Button
+                    variant="glass"
+                    size="sm"
+                    onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+                  >
+                    Back to Today
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="text-right">
-              <div className="text-sm text-white/80">Current Streak</div>
-              <div className="text-4xl font-bold">{user?.streak || 0}</div>
+              <div className="text-sm text-white/80">{isToday ? "Current Streak" : "Day Streak"}</div>
+              <div className="text-4xl font-bold">{isToday ? (user?.streak || 0) : "-"}</div>
               <div className="text-sm text-white/80">days</div>
             </div>
           </div>
@@ -180,8 +203,8 @@ export default function Dashboard() {
               <Star className="h-6 w-6 text-motivation" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{user?.points?.toLocaleString() || 0}</div>
-              <div className="text-sm text-muted-foreground">Total Points</div>
+              <div className="text-2xl font-bold">{totalPointsFromActivities.toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground">{isToday ? "Points Today" : "Points Earned"}</div>
             </div>
           </div>
         </Card>
@@ -213,9 +236,9 @@ export default function Dashboard() {
             <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
               <div className="flex items-center gap-3">
                 <Star className="h-5 w-5 text-warning" />
-                <span className="font-medium">Total Points</span>
+                <span className="font-medium">{isToday ? "Points Today" : "Points Earned"}</span>
               </div>
-              <span className="text-2xl font-bold">{user.points.toLocaleString()}</span>
+              <span className="text-2xl font-bold">{totalPointsFromActivities.toLocaleString()}</span>
             </div>
           </div>
         </Card>
