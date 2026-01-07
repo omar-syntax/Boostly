@@ -134,7 +134,29 @@ export function UserProvider({ children }: { children: ReactNode }) {
       // Handle Level Update Logic
       if (updates.points !== undefined) {
         const newLevel = calculateLevel(updates.points)
-        dbUpdates.level = newLevel
+
+        // Check for level up and dispatch event
+        if (user.level < newLevel) {
+          dbUpdates.level = newLevel
+
+          // CRITICAL FIX: Update local state immediately to prevent loop
+          setUser(prev => prev ? { ...prev, level: newLevel } : null)
+
+          const event = new CustomEvent("userLevelUp", {
+            detail: {
+              oldLevel: user.level,
+              newLevel: newLevel,
+              newBadge: getBadgeForLevel(newLevel)
+            }
+          })
+          window.dispatchEvent(event)
+        } else {
+          dbUpdates.level = newLevel
+          // Ensure local state is consistent if level changed but not a level-up (e.g. level down, or init sync)
+          if (user.level !== newLevel) {
+            setUser(prev => prev ? { ...prev, level: newLevel } : null)
+          }
+        }
       }
 
       // Only update database if there are changes

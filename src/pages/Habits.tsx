@@ -19,7 +19,9 @@ import {
   Flame,
   CheckCircle,
   Circle,
-  TrendingUp
+  TrendingUp,
+  Edit,
+  Trash2
 } from "lucide-react"
 
 interface Habit {
@@ -39,8 +41,9 @@ interface Habit {
 export default function Habits() {
   const { user, updateUser } = useUser()
   const [habits, setHabits] = useState<Habit[]>([])
-  const [newHabitOpen, setNewHabitOpen] = useState(false)
-  const [newHabitForm, setNewHabitForm] = useState({
+  const [habitDialogOpen, setHabitDialogOpen] = useState(false)
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null)
+  const [habitForm, setHabitForm] = useState({
     title: "",
     description: "",
     category: "",
@@ -103,48 +106,99 @@ export default function Habits() {
     fetchHabits()
   }, [user?.id])
 
-  const handleAddHabit = async (e: React.FormEvent) => {
+  const handleOpenDialog = (habit?: Habit) => {
+    if (habit) {
+      setEditingHabit(habit)
+      setHabitForm({
+        title: habit.title,
+        description: habit.description || "",
+        category: habit.category,
+        weeklyTarget: habit.weeklyTarget,
+        points: habit.points
+      })
+    } else {
+      setEditingHabit(null)
+      setHabitForm({
+        title: "",
+        description: "",
+        category: "",
+        weeklyTarget: 7,
+        points: 25
+      })
+    }
+    setHabitDialogOpen(true)
+  }
+
+  const handleSaveHabit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!newHabitForm.title.trim() || !newHabitForm.category || !user) {
+    if (!habitForm.title.trim() || !habitForm.category || !user) {
       return
     }
 
-    const color = colors[Math.floor(Math.random() * colors.length)]
+    if (editingHabit) {
+      // Update existing habit
+      const { error } = await supabase
+        .from('habits')
+        .update({
+          title: habitForm.title,
+          description: habitForm.description,
+          category: habitForm.category,
+          weekly_target: habitForm.weeklyTarget,
+          points: habitForm.points
+        })
+        .eq('id', editingHabit.id)
 
-    const newHabitObj = {
-      user_id: user.id,
-      title: newHabitForm.title,
-      description: newHabitForm.description,
-      category: newHabitForm.category,
-      weekly_target: newHabitForm.weeklyTarget,
-      points: newHabitForm.points,
-      color,
-      current_streak: 0,
-      best_streak: 0
-    }
+      if (error) {
+        console.error("Error updating habit", error)
+        return
+      }
+    } else {
+      // Create new habit
+      const color = colors[Math.floor(Math.random() * colors.length)]
 
-    const { data, error } = await supabase
-      .from('habits')
-      .insert([newHabitObj])
-      .select()
+      const newHabitObj = {
+        user_id: user.id,
+        title: habitForm.title,
+        description: habitForm.description,
+        category: habitForm.category,
+        weekly_target: habitForm.weeklyTarget,
+        points: habitForm.points,
+        color,
+        current_streak: 0,
+        best_streak: 0
+      }
 
-    if (error) {
-      console.error("Error creating habit", error)
-      return
+      const { error } = await supabase
+        .from('habits')
+        .insert([newHabitObj])
+
+      if (error) {
+        console.error("Error creating habit", error)
+        return
+      }
     }
 
     // Refresh list
     fetchHabits()
+    setHabitDialogOpen(false)
+  }
 
-    setNewHabitOpen(false)
-    setNewHabitForm({
-      title: "",
-      description: "",
-      category: "",
-      weeklyTarget: 7,
-      points: 25
-    })
+  const handleDeleteHabit = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this habit?") || !user) return
+
+    const { error } = await supabase
+      .from('habits')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error("Error deleting habit", error)
+      return
+    }
+
+    // Update local state
+    setHabits(prev => prev.filter(h => h.id !== id))
   }
 
   const toggleHabit = async (id: string) => {
@@ -246,9 +300,9 @@ export default function Habits() {
           <p className="text-muted-foreground">Build consistent habits for lasting success</p>
         </div>
 
-        <Dialog open={newHabitOpen} onOpenChange={setNewHabitOpen}>
+        <Dialog open={habitDialogOpen} onOpenChange={setHabitDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="gradient-primary">
+            <Button className="gradient-primary" onClick={() => handleOpenDialog()}>
               <Plus className="h-4 w-4 mr-2" />
               New Habit
             </Button>
@@ -258,18 +312,18 @@ export default function Habits() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Target className="h-5 w-5 text-primary" />
-                Create New Habit
+                {editingHabit ? "Edit Habit" : "Create New Habit"}
               </DialogTitle>
             </DialogHeader>
 
-            <form onSubmit={handleAddHabit} className="space-y-4">
+            <form onSubmit={handleSaveHabit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="habit-title">Habit Title *</Label>
                 <Input
                   id="habit-title"
                   placeholder="e.g., Morning Meditation, Daily Reading"
-                  value={newHabitForm.title}
-                  onChange={(e) => setNewHabitForm({ ...newHabitForm, title: e.target.value })}
+                  value={habitForm.title}
+                  onChange={(e) => setHabitForm({ ...habitForm, title: e.target.value })}
                   required
                 />
               </div>
@@ -279,15 +333,15 @@ export default function Habits() {
                 <Input
                   id="habit-description"
                   placeholder="Brief description of your habit..."
-                  value={newHabitForm.description}
-                  onChange={(e) => setNewHabitForm({ ...newHabitForm, description: e.target.value })}
+                  value={habitForm.description}
+                  onChange={(e) => setHabitForm({ ...habitForm, description: e.target.value })}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Category *</Label>
-                  <Select value={newHabitForm.category} onValueChange={(value) => setNewHabitForm({ ...newHabitForm, category: value })}>
+                  <Select value={habitForm.category} onValueChange={(value) => setHabitForm({ ...habitForm, category: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
@@ -306,8 +360,8 @@ export default function Habits() {
                     type="number"
                     min="1"
                     max="7"
-                    value={newHabitForm.weeklyTarget}
-                    onChange={(e) => setNewHabitForm({ ...newHabitForm, weeklyTarget: parseInt(e.target.value) || 7 })}
+                    value={habitForm.weeklyTarget}
+                    onChange={(e) => setHabitForm({ ...habitForm, weeklyTarget: parseInt(e.target.value) || 7 })}
                   />
                 </div>
               </div>
@@ -319,8 +373,8 @@ export default function Habits() {
                   type="number"
                   min="5"
                   max="100"
-                  value={newHabitForm.points}
-                  onChange={(e) => setNewHabitForm({ ...newHabitForm, points: parseInt(e.target.value) || 25 })}
+                  value={habitForm.points}
+                  onChange={(e) => setHabitForm({ ...habitForm, points: parseInt(e.target.value) || 25 })}
                 />
               </div>
 
@@ -328,7 +382,7 @@ export default function Habits() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setNewHabitOpen(false)}
+                  onClick={() => setHabitDialogOpen(false)}
                   className="flex-1"
                 >
                   Cancel
@@ -336,9 +390,9 @@ export default function Habits() {
                 <Button
                   type="submit"
                   className="flex-1 gradient-primary"
-                  disabled={!newHabitForm.title.trim() || !newHabitForm.category}
+                  disabled={!habitForm.title.trim() || !habitForm.category}
                 >
-                  Create Habit
+                  {editingHabit ? "Save Changes" : "Create Habit"}
                 </Button>
               </div>
             </form>
@@ -411,7 +465,17 @@ export default function Habits() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {habits.map(habit => (
-            <div key={habit.id} className="text-center">
+            <div key={habit.id} className="text-center relative group">
+              <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => handleOpenDialog(habit)}
+                >
+                  <Edit className="h-3 w-3" />
+                </Button>
+              </div>
               <Button
                 variant={habit.completedToday ? "default" : "outline"}
                 size="icon"
@@ -435,11 +499,30 @@ export default function Habits() {
       {/* Detailed Habit Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {habits.map(habit => (
-          <Card key={habit.id} className="p-6 hover:shadow-medium transition-smooth">
+          <Card key={habit.id} className="p-6 hover:shadow-medium transition-smooth relative group">
+            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleOpenDialog(habit)}
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive hover:text-destructive"
+                onClick={() => handleDeleteHabit(habit.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+
             <div className="space-y-4">
               {/* Header */}
               <div className="flex items-start justify-between">
-                <div className="flex-1">
+                <div className="flex-1 mr-12">
                   <h3 className="font-semibold text-lg">{habit.title}</h3>
                   <p className="text-sm text-muted-foreground">{habit.description}</p>
                 </div>

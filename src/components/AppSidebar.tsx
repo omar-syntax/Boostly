@@ -1,18 +1,18 @@
 import { useState } from "react"
-import { 
-  BarChart3, 
-  CheckSquare, 
-  Target, 
-  Timer, 
-  FolderOpen, 
-  Users, 
+import {
+  BarChart3,
+  CheckSquare,
+  Target,
+  Timer,
+  FolderOpen,
+  Users,
   Trophy,
   Zap,
   Star
 } from "lucide-react"
 import { NavLink, useLocation } from "react-router-dom"
 import { useUser } from "@/contexts/UserContext"
-import { pointsToNextLevel } from "@/utils/points"
+import { pointsToNextLevel, POINTS_CONFIG } from "@/utils/points"
 
 import {
   Sidebar,
@@ -46,8 +46,9 @@ export function AppSidebar() {
   // Calculate progress to next level - use actual user points
   const userPoints = user?.points ?? 0
   const currentLevel = user?.level ?? 1
-  const pointsInCurrentLevel = userPoints % 100
-  const progressPercentage = Math.max(0, Math.min(100, (pointsInCurrentLevel / 100) * 100))
+  const pointsPerLevel = POINTS_CONFIG.POINTS_PER_LEVEL
+  const pointsInCurrentLevel = userPoints % pointsPerLevel
+  const progressPercentage = Math.max(0, Math.min(100, (pointsInCurrentLevel / pointsPerLevel) * 100))
 
   const handleNavClick = () => {
     // Auto-close sidebar on navigation (especially useful on mobile)
@@ -62,8 +63,8 @@ export function AppSidebar() {
 
   const getNavClassName = (path: string) => {
     const active = isActive(path)
-    return active 
-      ? "bg-primary/10 text-primary border-r-2 border-primary shadow-soft" 
+    return active
+      ? "bg-primary/10 text-primary border-r-2 border-primary shadow-soft"
       : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
   }
 
@@ -103,8 +104,8 @@ export function AppSidebar() {
                 <span>{pointsToNextLevel(userPoints)} pts to next</span>
               </div>
               <div className="bg-muted rounded-full h-2">
-                <div 
-                  className="bg-gradient-motivation h-2 rounded-full transition-all duration-300" 
+                <div
+                  className="gradient-motivation h-2 rounded-full transition-all duration-300"
                   style={{ width: `${progressPercentage}%` }}
                 ></div>
               </div>
@@ -116,18 +117,18 @@ export function AppSidebar() {
           <SidebarGroupLabel className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             {collapsed ? "Menu" : "Productivity Hub"}
           </SidebarGroupLabel>
-          
+
           <SidebarGroupContent>
             <SidebarMenu className="gap-1 px-2">
               {menuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild 
+                  <SidebarMenuButton
+                    asChild
                     className={`${getNavClassName(item.url)} transition-smooth hover:scale-[1.02] rounded-lg`}
                   >
-                    <NavLink 
-                      to={item.url} 
-                      end 
+                    <NavLink
+                      to={item.url}
+                      end
                       className="flex items-center gap-3"
                       onClick={handleNavClick}
                     >

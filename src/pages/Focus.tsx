@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { FocusStatsDialog } from "@/components/FocusStatsDialog"
-import { 
-  Timer, 
-  Play, 
-  Pause, 
-  RotateCcw, 
+import { useUser } from "@/contexts/UserContext"
+import { playCompletionSound } from "@/utils/sounds"
+import {
+  Timer,
+  Play,
+  Pause,
+  RotateCcw,
   Settings,
   Coffee,
   Target,
@@ -34,30 +36,20 @@ interface FocusSession {
   points: number
 }
 
-const todaySessions: FocusSession[] = [
-  {
-    id: "1",
-    type: "work",
-    duration: 25,
-    completedAt: new Date(Date.now() - 3600000),
-    points: 50
-  },
-  {
-    id: "2",
-    type: "work", 
-    duration: 25,
-    completedAt: new Date(Date.now() - 1800000),
-    points: 50
-  }
-]
+// Initial demo data for stats (optional, can be cleared if preferred)
+const todaySessions: FocusSession[] = []
 
 export default function Focus() {
+  const { user, updateUser } = useUser()
   const [timeLeft, setTimeLeft] = useState(POMODORO_TIME)
   const [timerState, setTimerState] = useState<TimerState>("idle")
   const [sessionType, setSessionType] = useState<SessionType>("work")
   const [sessions, setSessions] = useState<FocusSession[]>(todaySessions)
   const [currentSession, setCurrentSession] = useState(1)
   const [soundEnabled, setSoundEnabled] = useState(true)
+
+  // Ref to store the target end time
+  const endTimeRef = useRef<number | null>(null)
 
   const sessionDurations = {
     work: POMODORO_TIME,
@@ -77,20 +69,28 @@ export default function Focus() {
     longBreak: 15
   }
 
+  // Timer Tick Logic
   useEffect(() => {
     let interval: NodeJS.Timeout
-    
-    if (timerState === "running" && timeLeft > 0) {
+
+    if (timerState === "running") {
       interval = setInterval(() => {
-        setTimeLeft(prev => prev - 1)
-      }, 1000)
-    } else if (timeLeft === 0 && timerState === "running") {
-      // Session completed
-      completeSession()
+        if (!endTimeRef.current) return
+
+        const now = Date.now()
+        const diff = Math.ceil((endTimeRef.current - now) / 1000)
+
+        if (diff <= 0) {
+          setTimeLeft(0)
+          completeSession()
+        } else {
+          setTimeLeft(diff)
+        }
+      }, 200) // update more frequently for smoothness, though display is seconds
     }
 
     return () => clearInterval(interval)
-  }, [timerState, timeLeft])
+  }, [timerState])
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -99,30 +99,59 @@ export default function Focus() {
   }
 
   const startTimer = () => {
-    setTimerState("running")
+    // If starting from idle or paused, calculate new end time
+    if (timerState !== "running") {
+      endTimeRef.current = Date.now() + timeLeft * 1000
+      setTimerState("running")
+    }
   }
 
   const pauseTimer = () => {
-    setTimerState("paused")
+    if (timerState === "running") {
+      setTimerState("paused")
+      endTimeRef.current = null // Clear target time, we rely on `timeLeft` state now
+    }
   }
 
   const resetTimer = () => {
     setTimerState("idle")
+    setSessionType(sessionType) // Keeps current type
     setTimeLeft(sessionDurations[sessionType])
+    endTimeRef.current = null
   }
 
   const completeSession = () => {
+    setTimerState("idle")
+    endTimeRef.current = null
+
+    // Play Sound
+    if (soundEnabled) {
+      playCompletionSound()
+    }
+
+    // Add Points and Stats
+    if (user) {
+      const pointsEarned = sessionPoints[sessionType]
+      const durationHours = sessionDurations[sessionType] / 3600
+
+      updateUser({
+        points: user.points + pointsEarned,
+        weeklyPoints: user.weeklyPoints + pointsEarned,
+        focusHours: user.focusHours + durationHours
+      })
+    }
+
+    // Record Session Locally (for this view)
     const newSession: FocusSession = {
       id: Date.now().toString(),
       type: sessionType,
-      duration: sessionType === "work" ? 25 : sessionType === "shortBreak" ? 5 : 15,
+      duration: sessionDurations[sessionType] / 60, // in minutes
       completedAt: new Date(),
       points: sessionPoints[sessionType]
     }
-    
+
     setSessions(prev => [newSession, ...prev])
-    setTimerState("idle")
-    
+
     // Auto-switch to next session type
     if (sessionType === "work") {
       const nextType = currentSession % 4 === 0 ? "longBreak" : "shortBreak"
@@ -143,11 +172,13 @@ export default function Focus() {
     setSessionType(type)
     setTimeLeft(sessionDurations[type])
     setTimerState("idle")
+    endTimeRef.current = null
   }
 
   const progress = ((sessionDurations[sessionType] - timeLeft) / sessionDurations[sessionType]) * 100
   const completedToday = sessions.filter(s => s.type === "work").length
   const pointsToday = sessions.reduce((sum, s) => sum + s.points, 0)
+  // Calculate focus time in minutes from all sessions (work type usually counts for focus metrics)
   const focusTimeToday = sessions.filter(s => s.type === "work").reduce((sum, s) => sum + s.duration, 0)
 
   return (
@@ -158,7 +189,7 @@ export default function Focus() {
           <h1 className="text-3xl font-bold">Focus Room</h1>
           <p className="text-muted-foreground">Boost your productivity with focused work sessions</p>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <Button variant="outline" size="icon" onClick={() => setSoundEnabled(!soundEnabled)}>
             {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
@@ -225,21 +256,21 @@ export default function Focus() {
         <div className="max-w-md mx-auto text-center space-y-6">
           {/* Session Type Selector */}
           <div className="flex justify-center gap-2">
-            <Button 
+            <Button
               variant={sessionType === "work" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("work")}
             >
               Focus
             </Button>
-            <Button 
+            <Button
               variant={sessionType === "shortBreak" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("shortBreak")}
             >
               Short Break
             </Button>
-            <Button 
+            <Button
               variant={sessionType === "longBreak" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("longBreak")}
@@ -256,17 +287,16 @@ export default function Focus() {
 
           {/* Timer Display */}
           <div className="relative">
-            <div 
-              className={`text-8xl font-bold mb-4 ${
-                sessionType === "work" ? "text-primary" : 
-                sessionType === "shortBreak" ? "text-success" : "text-secondary"
-              }`}
+            <div
+              className={`text-8xl font-bold mb-4 ${sessionType === "work" ? "text-primary" :
+                  sessionType === "shortBreak" ? "text-success" : "text-secondary"
+                }`}
             >
               {formatTime(timeLeft)}
             </div>
-            
-            <Progress 
-              value={progress} 
+
+            <Progress
+              value={progress}
               className="w-full h-2 mb-6"
             />
           </div>
@@ -274,7 +304,7 @@ export default function Focus() {
           {/* Timer Controls */}
           <div className="flex justify-center gap-4">
             {timerState === "idle" || timerState === "paused" ? (
-              <Button 
+              <Button
                 onClick={startTimer}
                 size="lg"
                 className="gradient-primary px-8"
@@ -283,7 +313,7 @@ export default function Focus() {
                 {timerState === "paused" ? "Resume" : "Start"}
               </Button>
             ) : (
-              <Button 
+              <Button
                 onClick={pauseTimer}
                 size="lg"
                 variant="secondary"
@@ -293,8 +323,8 @@ export default function Focus() {
                 Pause
               </Button>
             )}
-            
-            <Button 
+
+            <Button
               onClick={resetTimer}
               size="lg"
               variant="outline"
@@ -329,29 +359,28 @@ export default function Focus() {
             sessions.map(session => (
               <div key={session.id} className="flex items-center justify-between p-4 border border-border rounded-lg">
                 <div className="flex items-center gap-4">
-                  <div className={`p-2 rounded-full ${
-                    session.type === "work" ? "bg-primary/10" :
-                    session.type === "shortBreak" ? "bg-success/10" : "bg-secondary/10"
-                  }`}>
-                    {session.type === "work" ? 
+                  <div className={`p-2 rounded-full ${session.type === "work" ? "bg-primary/10" :
+                      session.type === "shortBreak" ? "bg-success/10" : "bg-secondary/10"
+                    }`}>
+                    {session.type === "work" ?
                       <Target className="h-5 w-5 text-primary" /> :
                       <Coffee className="h-5 w-5 text-success" />
                     }
                   </div>
-                  
+
                   <div>
                     <div className="font-medium">
                       {sessionLabels[session.type]}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {session.duration} minutes • {session.completedAt.toLocaleTimeString([], { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
+                      {session.duration} minutes • {session.completedAt.toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
                       })}
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">
                     <Star className="h-3 w-3 mr-1" />

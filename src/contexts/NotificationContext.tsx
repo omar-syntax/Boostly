@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { useAuth } from "@/contexts/AuthContext"
 import { supabase } from "@/lib/supabase"
 import * as notificationService from "@/services/notification.service"
+import { playNotificationSound, playLevelUpSound } from "@/utils/sounds"
 
 export interface Notification {
   id: string
@@ -67,7 +68,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const channel = notificationService.subscribeToNotifications(
       session.user.id,
       (newNotification) => {
-        setNotifications(prev => [newNotification, ...prev])
+        setNotifications(prev => {
+          // Deduplicate
+          if (prev.some(n => n.id === newNotification.id)) return prev
+          return [newNotification, ...prev]
+        })
+
+        // Don't play generic sound for achievements as they have their own sound
+        if (newNotification.type !== 'achievement') {
+          playNotificationSound()
+        }
       }
     )
 
@@ -93,7 +103,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Notification will be added via real-time subscription
+    if (data) {
+      // Optimistically add to state (with dedupe check just in case)
+      setNotifications(prev => {
+        if (prev.some(n => n.id === data.id)) return prev
+        return [data, ...prev]
+      })
+    }
   }, [session?.user?.id])
 
   // Listen for user level up and badge gained events
@@ -101,6 +117,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const handleLevelUp = (event: CustomEvent) => {
       const { oldLevel, newLevel, newBadge } = event.detail
 
+      playLevelUpSound()
       addNotification({
         title: "🎉 Level Up!",
         message: `Congratulations! You've reached Level ${newLevel}! Keep up the amazing work!`,
