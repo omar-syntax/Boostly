@@ -71,15 +71,17 @@ export default function Habits() {
 
     if (!habitsData) return
 
-    // 2. Fetch Completion for Today for all habits
-    // Simple way: get all logs for today for this user
-    const today = new Date().toISOString().split('T')[0]
+    // 2. Fetch Completion for Today (Local Time logic)
+    const now = new Date()
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString()
+
     const { data: logsData, error: logsError } = await supabase
       .from('habit_logs')
       .select('habit_id')
       .eq('user_id', user.id)
-      .gte('completed_at', `${today}T00:00:00`)
-      .lte('completed_at', `${today}T23:59:59`)
+      .gte('completed_at', startOfDay)
+      .lte('completed_at', endOfDay)
 
     const completedHabitIds = new Set(logsData?.map(log => log.habit_id) || [])
 
@@ -92,7 +94,7 @@ export default function Habits() {
       bestStreak: h.best_streak,
       completedToday: completedHabitIds.has(h.id),
       weeklyTarget: h.weekly_target,
-      weeklyProgress: 0, // TODO: Calculate this from logs if needed, for now simplified
+      weeklyProgress: 0,
       points: h.points,
       category: h.category,
       color: h.color || colors[0]
@@ -206,73 +208,92 @@ export default function Habits() {
     if (!habit || !user) return
 
     const wasCompleted = habit.completedToday
-    const newStreak = !wasCompleted ? habit.streak + 1 : Math.max(0, habit.streak - 1)
+    const newCompleted = !wasCompleted
+    const newStreak = newCompleted ? habit.streak + 1 : Math.max(0, habit.streak - 1)
     const pointsToAward = getHabitPoints(newStreak)
 
-    // Optimistic Update
-    const updatedHabits = habits.map(h => {
-      if (h.id === id) {
-        const newCompletedToday = !h.completedToday
-        return {
-          ...h,
-          completedToday: newCompletedToday,
-          streak: newCompletedToday ? h.streak + 1 : Math.max(0, h.streak - 1),
-          bestStreak: newCompletedToday && h.streak + 1 > h.bestStreak ? h.streak + 1 : h.bestStreak,
+    try {
+      if (newCompleted) {
+        // MARK AS DONE
+        // 1. Insert Log
+        const { error: logError } = await supabase.from('habit_logs').insert([{
+          habit_id: id,
+          user_id: user.id,
+          completed_at: new Date().toISOString()
+        }])
+        if (logError) throw logError
+
+        // 2. Update Streak
+        const newBestStreak = Math.max(habit.bestStreak, newStreak)
+        const { error: updateError } = await supabase.from('habits').update({
+          current_streak: newStreak,
+          best_streak: newBestStreak,
+          last_completed_at: new Date().toISOString()
+        }).eq('id', id)
+        if (updateError) throw updateError
+
+        // 3. Award Points
+        playCompletionSound()
+        updateUser({
+          points: user.points + pointsToAward,
+          weeklyPoints: user.weeklyPoints + pointsToAward,
+        })
+
+      } else {
+        // UN-MARK (UNDO)
+        // 1. Find the log to delete (Robust Logic)
+        const now = new Date()
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+        
+        // First find the ID of the log for completion TODAY
+        const { data: logs, error: fetchError } = await supabase
+          .from('habit_logs')
+          .select('id')
+          .eq('habit_id', id)
+          .eq('user_id', user.id)
+          .gte('completed_at', startOfDay)
+          .order('completed_at', { ascending: false }) // Get most recent if duplicates
+
+        if (fetchError) throw fetchError
+
+        if (logs && logs.length > 0) {
+            // Delete specifically by ID
+            const { error: deleteError } = await supabase
+              .from('habit_logs')
+              .delete()
+              .eq('id', logs[0].id)
+            
+            if (deleteError) throw deleteError
         }
+
+        // 2. Revert Streak
+        const { error: updateError } = await supabase.from('habits').update({
+          current_streak: newStreak
+        }).eq('id', id)
+        if (updateError) throw updateError
+
+        // 3. Deduct Points (Simplified)
+        await updateUser({
+          points: Math.max(0, user.points - pointsToAward),
+          weeklyPoints: Math.max(0, user.weeklyPoints - pointsToAward),
+        })
       }
-      return h
-    })
-    setHabits(updatedHabits)
 
-    // DB Updates
-    if (!wasCompleted) {
-      // Mark as completed
-      // 1. Insert Log
-      await supabase.from('habit_logs').insert([{
-        habit_id: id,
-        user_id: user.id
-      }])
+      // 4. Update UI State (Success)
+      setHabits(prev => prev.map(h => {
+        if (h.id === id) {
+          return {
+            ...h,
+            completedToday: newCompleted,
+            streak: newStreak,
+            bestStreak: newCompleted ? Math.max(h.bestStreak, newStreak) : h.bestStreak
+          }
+        }
+        return h
+      }))
 
-      // 2. Update Streak
-      const newBestStreak = Math.max(habit.bestStreak, newStreak)
-      await supabase.from('habits').update({
-        current_streak: newStreak,
-        best_streak: newBestStreak,
-        last_completed_at: new Date().toISOString()
-      }).eq('id', id)
-
-      // 3. User Points
-      playCompletionSound()
-      await updateUser({
-        points: user.points + pointsToAward,
-        weeklyPoints: user.weeklyPoints + pointsToAward,
-      })
-
-    } else {
-      // Un-complete
-      // 1. Delete Log (for today)
-      const today = new Date().toISOString().split('T')[0]
-      await supabase.from('habit_logs')
-        .delete()
-        .eq('habit_id', id)
-        .eq('user_id', user.id)
-        .gte('completed_at', `${today}T00:00:00`)
-        .lte('completed_at', `${today}T23:59:59`)
-
-      // 2. Revert Streak
-      // This is tricky because we don't know the state before EXACTLY without re-fetching logs history
-      // simplified: 
-      await supabase.from('habits').update({
-        current_streak: newStreak
-        // We usually don't revert best_streak
-      }).eq('id', id)
-
-      // 3. Revert User Points
-      const basePoints = 20 // Approx revert
-      await updateUser({
-        points: Math.max(0, user.points - basePoints),
-        weeklyPoints: Math.max(0, user.weeklyPoints - basePoints),
-      })
+    } catch (error) {
+      console.error("Error toggling habit:", error)
     }
   }
 
