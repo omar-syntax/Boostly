@@ -75,9 +75,7 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="p-6 border-b border-border/50">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg gradient-hero flex items-center justify-center">
-                <Zap className="h-4 w-4 text-white" />
-              </div>
+              <img src="/Boostly-logo.png" alt="Boostly" className="w-12 h-12 object-contain" />
               <div>
                 <h2 className="font-bold text-lg gradient-hero bg-clip-text text-transparent">
                   Boostly

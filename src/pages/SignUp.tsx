@@ -75,9 +75,7 @@ export default function SignUp() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-surface to-background p-4">
       <Card className="w-full max-w-md p-8 glass-card shadow-large">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl gradient-hero flex items-center justify-center mb-4">
-            <Zap className="h-8 w-8 text-white" />
-          </div>
+          <img src="/Boostly-logo.png" alt="Boostly" className="w-20 h-20 object-contain mb-4" />
           <h1 className="text-3xl font-bold gradient-hero bg-clip-text text-transparent mb-2">
             Get Started
           </h1>
