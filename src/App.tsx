@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
 import Habits from "./pages/Habits";
 import Focus from "./pages/Focus";
+import Forest from "./pages/Forest";
 import Projects from "./pages/Projects";
 import Community from "./pages/Community";
 import Leaderboard from "./pages/Leaderboard";
@@ -72,6 +73,14 @@ const App = () => (
                     element={
                       <ProtectedRoute>
                         <Focus />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/forest"
+                    element={
+                      <ProtectedRoute>
+                        <Forest />
                       </ProtectedRoute>
                     }
                   />

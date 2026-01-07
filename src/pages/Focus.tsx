@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { FocusStatsDialog } from "@/components/FocusStatsDialog"
 import { useUser } from "@/contexts/UserContext"
 import { playCompletionSound } from "@/utils/sounds"
+import { supabase } from "@/lib/supabase"
+import { TreeIcon } from "@/components/Forest/TreeIcon"
+import { useFocusTimer, SessionType } from "@/hooks/useFocusTimer"
 import {
   Timer,
   Play,
@@ -18,15 +21,14 @@ import {
   Clock,
   Zap,
   Volume2,
-  VolumeX
+  VolumeX,
+  ArrowRight
 } from "lucide-react"
+import { Link } from "react-router-dom"
 
-const POMODORO_TIME = 25 * 60 // 25 minutes in seconds
-const SHORT_BREAK = 5 * 60 // 5 minutes
-const LONG_BREAK = 15 * 60 // 15 minutes
-
-type SessionType = "work" | "shortBreak" | "longBreak"
-type TimerState = "idle" | "running" | "paused"
+const POMODORO_TIME = 25 * 60
+const SHORT_BREAK = 5 * 60
+const LONG_BREAK = 15 * 60
 
 interface FocusSession {
   id: string
@@ -36,20 +38,14 @@ interface FocusSession {
   points: number
 }
 
-// Initial demo data for stats (optional, can be cleared if preferred)
+// Initial demo data for stats 
 const todaySessions: FocusSession[] = []
 
 export default function Focus() {
   const { user, updateUser } = useUser()
-  const [timeLeft, setTimeLeft] = useState(POMODORO_TIME)
-  const [timerState, setTimerState] = useState<TimerState>("idle")
-  const [sessionType, setSessionType] = useState<SessionType>("work")
   const [sessions, setSessions] = useState<FocusSession[]>(todaySessions)
   const [currentSession, setCurrentSession] = useState(1)
   const [soundEnabled, setSoundEnabled] = useState(true)
-
-  // Ref to store the target end time
-  const endTimeRef = useRef<number | null>(null)
 
   const sessionDurations = {
     work: POMODORO_TIME,
@@ -69,116 +65,99 @@ export default function Focus() {
     longBreak: 15
   }
 
-  // Timer Tick Logic
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-
-    if (timerState === "running") {
-      interval = setInterval(() => {
-        if (!endTimeRef.current) return
-
-        const now = Date.now()
-        const diff = Math.ceil((endTimeRef.current - now) / 1000)
-
-        if (diff <= 0) {
-          setTimeLeft(0)
-          completeSession()
-        } else {
-          setTimeLeft(diff)
-        }
-      }, 200) // update more frequently for smoothness, though display is seconds
-    }
-
-    return () => clearInterval(interval)
-  }, [timerState])
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  const getTreeType = (durationMinutes: number) => {
+    if (durationMinutes < 25) return 'sapling'
+    if (durationMinutes < 50) return 'tree'
+    return 'large_tree'
   }
 
-  const startTimer = () => {
-    // If starting from idle or paused, calculate new end time
-    if (timerState !== "running") {
-      endTimeRef.current = Date.now() + timeLeft * 1000
-      setTimerState("running")
-    }
-  }
-
-  const pauseTimer = () => {
-    if (timerState === "running") {
-      setTimerState("paused")
-      endTimeRef.current = null // Clear target time, we rely on `timeLeft` state now
-    }
-  }
-
-  const resetTimer = () => {
-    setTimerState("idle")
-    setSessionType(sessionType) // Keeps current type
-    setTimeLeft(sessionDurations[sessionType])
-    endTimeRef.current = null
-  }
-
-  const completeSession = () => {
-    setTimerState("idle")
-    endTimeRef.current = null
-
+  const handleComplete = () => {
     // Play Sound
     if (soundEnabled) {
       playCompletionSound()
     }
 
+    const completedType = timer.type
+    const pointsEarned = sessionPoints[completedType]
+    const durationMinutes = sessionDurations[completedType] / 60
+    const treeType = getTreeType(durationMinutes)
+
     // Add Points and Stats
     if (user) {
-      const pointsEarned = sessionPoints[sessionType]
-      const durationHours = sessionDurations[sessionType] / 3600
+      const durationHours = sessionDurations[completedType] / 3600
 
       updateUser({
         points: user.points + pointsEarned,
         weeklyPoints: user.weeklyPoints + pointsEarned,
         focusHours: user.focusHours + durationHours
       })
+
+      // Save to Supabase (Forest)
+      if (completedType === "work") {
+        supabase.from('focus_sessions').insert({
+          user_id: user.id,
+          duration: durationMinutes,
+          completed: true,
+          tree_type: treeType,
+          points_earned: pointsEarned,
+          completed_at: new Date().toISOString()
+        }).then(({ error }) => {
+          if (error) console.error("Error saving focus session:", error)
+        })
+      }
     }
 
     // Record Session Locally (for this view)
     const newSession: FocusSession = {
       id: Date.now().toString(),
-      type: sessionType,
-      duration: sessionDurations[sessionType] / 60, // in minutes
+      type: completedType,
+      duration: durationMinutes,
       completedAt: new Date(),
-      points: sessionPoints[sessionType]
+      points: sessionPoints[completedType]
     }
 
     setSessions(prev => [newSession, ...prev])
 
-    // Auto-switch to next session type
-    if (sessionType === "work") {
+    // Auto-switch logic
+    if (completedType === "work") {
       const nextType = currentSession % 4 === 0 ? "longBreak" : "shortBreak"
-      setSessionType(nextType)
-      setTimeLeft(sessionDurations[nextType])
+
       if (nextType === "longBreak") {
         setCurrentSession(1)
       } else {
         setCurrentSession(prev => prev + 1)
       }
+
+      // We must reset the timer with the new type's duration
+      timer.setType(nextType)
+      timer.reset(sessionDurations[nextType])
     } else {
-      setSessionType("work")
-      setTimeLeft(sessionDurations.work)
+      timer.setType("work")
+      timer.reset(sessionDurations.work)
     }
   }
 
-  const switchSessionType = (type: SessionType) => {
-    setSessionType(type)
-    setTimeLeft(sessionDurations[type])
-    setTimerState("idle")
-    endTimeRef.current = null
+  const timer = useFocusTimer({
+    onComplete: handleComplete
+  })
+
+  // Format helper
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
-  const progress = ((sessionDurations[sessionType] - timeLeft) / sessionDurations[sessionType]) * 100
+  const switchSessionType = (type: SessionType) => {
+    timer.setType(type)
+    timer.reset(sessionDurations[type])
+  }
+
+  // Tree Animation Calc
+  const treeScale = 0.5 + (0.5 * (timer.progress / 100))
+
   const completedToday = sessions.filter(s => s.type === "work").length
   const pointsToday = sessions.reduce((sum, s) => sum + s.points, 0)
-  // Calculate focus time in minutes from all sessions (work type usually counts for focus metrics)
   const focusTimeToday = sessions.filter(s => s.type === "work").reduce((sum, s) => sum + s.duration, 0)
 
   return (
@@ -191,6 +170,13 @@ export default function Focus() {
         </div>
 
         <div className="flex items-center gap-4">
+          <Link to="/forest">
+            <Button variant="outline" className="gap-2 text-success border-success/20 hover:bg-success/5">
+              <TreeIcon type="tree" className="h-4 w-4" />
+              Go to Forest
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </Link>
           <Button variant="outline" size="icon" onClick={() => setSoundEnabled(!soundEnabled)}>
             {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
@@ -257,21 +243,21 @@ export default function Focus() {
           {/* Session Type Selector */}
           <div className="flex justify-center gap-2">
             <Button
-              variant={sessionType === "work" ? "default" : "outline"}
+              variant={timer.type === "work" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("work")}
             >
               Focus
             </Button>
             <Button
-              variant={sessionType === "shortBreak" ? "default" : "outline"}
+              variant={timer.type === "shortBreak" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("shortBreak")}
             >
               Short Break
             </Button>
             <Button
-              variant={sessionType === "longBreak" ? "default" : "outline"}
+              variant={timer.type === "longBreak" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("longBreak")}
             >
@@ -281,40 +267,55 @@ export default function Focus() {
 
           {/* Current Session Info */}
           <div>
-            <h2 className="text-xl font-semibold mb-2">{sessionLabels[sessionType]}</h2>
+            <h2 className="text-xl font-semibold mb-2">{sessionLabels[timer.type]}</h2>
             <Badge variant="outline">Session {currentSession}/4</Badge>
+          </div>
+
+          {/* Growing Tree Animation Area */}
+          <div className="flex items-center justify-center h-24 relative">
+            {timer.type === 'work' ? (
+              <div style={{ transform: `scale(${timer.state === 'running' || timer.progress > 0 ? treeScale : 0.5})` }} className="transition-transform duration-1000 ease-in-out">
+                <TreeIcon
+                  type={getTreeType(sessionDurations[timer.type] / 60)}
+                  stage={timer.progress < 20 ? 'seed' : timer.progress < 50 ? 'sapling' : 'growing'}
+                  className="w-16 h-16"
+                />
+              </div>
+            ) : (
+              <Coffee className="w-12 h-12 text-muted-foreground/50 animate-pulse" />
+            )}
           </div>
 
           {/* Timer Display */}
           <div className="relative">
             <div
-              className={`text-8xl font-bold mb-4 ${sessionType === "work" ? "text-primary" :
-                  sessionType === "shortBreak" ? "text-success" : "text-secondary"
+              className={`text-8xl font-bold mb-4 ${timer.type === "work" ? "text-primary" :
+                timer.type === "shortBreak" ? "text-success" : "text-secondary"
                 }`}
             >
-              {formatTime(timeLeft)}
+              {formatTime(timer.timeLeft)}
             </div>
 
             <Progress
-              value={progress}
+              value={timer.progress}
               className="w-full h-2 mb-6"
             />
           </div>
 
           {/* Timer Controls */}
           <div className="flex justify-center gap-4">
-            {timerState === "idle" || timerState === "paused" ? (
+            {timer.state === "idle" || timer.state === "paused" ? (
               <Button
-                onClick={startTimer}
+                onClick={timer.start}
                 size="lg"
                 className="gradient-primary px-8"
               >
                 <Play className="h-5 w-5 mr-2" />
-                {timerState === "paused" ? "Resume" : "Start"}
+                {timer.state === "paused" ? "Resume" : "Start"}
               </Button>
             ) : (
               <Button
-                onClick={pauseTimer}
+                onClick={timer.pause}
                 size="lg"
                 variant="secondary"
                 className="px-8"
@@ -325,7 +326,7 @@ export default function Focus() {
             )}
 
             <Button
-              onClick={resetTimer}
+              onClick={() => timer.reset(sessionDurations[timer.type])}
               size="lg"
               variant="outline"
             >
@@ -336,7 +337,7 @@ export default function Focus() {
 
           {/* Session Info */}
           <div className="text-sm text-muted-foreground">
-            <p>Earn <span className="font-semibold text-warning">{sessionPoints[sessionType]} points</span> when you complete this session</p>
+            <p>Earn <span className="font-semibold text-warning">{sessionPoints[timer.type]} points</span> when you complete this session</p>
           </div>
         </div>
       </Card>
@@ -360,7 +361,7 @@ export default function Focus() {
               <div key={session.id} className="flex items-center justify-between p-4 border border-border rounded-lg">
                 <div className="flex items-center gap-4">
                   <div className={`p-2 rounded-full ${session.type === "work" ? "bg-primary/10" :
-                      session.type === "shortBreak" ? "bg-success/10" : "bg-secondary/10"
+                    session.type === "shortBreak" ? "bg-success/10" : "bg-secondary/10"
                     }`}>
                     {session.type === "work" ?
                       <Target className="h-5 w-5 text-primary" /> :
