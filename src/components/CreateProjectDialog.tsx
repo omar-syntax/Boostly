@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -8,35 +8,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { CalendarIcon, Plus, Briefcase, Heart, Book, Dumbbell, Target, Lightbulb, Check, X, Trash2 } from "lucide-react"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format } from "date-fns"
+import { ChecklistItem, Project } from "../types/project.types"
+import { databaseService } from "../services/database.service"
 
-interface ChecklistItem {
-  id: string
-  text: string
-  completed: boolean
-}
-
-interface Project {
-  id: string
-  title: string
-  description: string
-  goals: ChecklistItem[]
-  tasks: ChecklistItem[]
-  progress: number
-  category: string
-  startDate: Date
-  dueDate: Date
-  priority: "low" | "medium" | "high"
-  taskStats: {
-    total: number
-    completed: number
-  }
-  collaborators: number
-  points: number
-  color: string
-  icon: any
+interface CreateProjectDialogProps {
+  onProjectCreated: (project: Omit<Project, 'id' | 'startDate' | 'taskStats'>) => void
 }
 
 const categoryIcons = {
@@ -57,18 +34,15 @@ const categoryColors = {
   "Creative": "bg-purple-500"
 }
 
-interface CreateProjectDialogProps {
-  onProjectCreated: (project: Project) => void
-}
-
 export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogProps) {
   const [open, setOpen] = useState(false)
+  const dateInputRef = useRef<HTMLInputElement>(null)
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     category: "",
     priority: "medium" as "low" | "medium" | "high",
-    dueDate: undefined as Date | undefined
+    dueDate: ""
   })
   const [goals, setGoals] = useState<ChecklistItem[]>([])
   const [tasks, setTasks] = useState<ChecklistItem[]>([])
@@ -95,7 +69,7 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
       description: "",
       category: "",
       priority: "medium",
-      dueDate: undefined
+      dueDate: ""
     })
     setGoals([])
     setTasks([])
@@ -146,15 +120,16 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
     setTasks(tasks.filter(task => task.id !== id))
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     
     if (!formData.title.trim() || !formData.category || !formData.dueDate) {
       return
     }
 
-    const newProject: Project = {
-      id: Date.now().toString(),
+    const dueDateObj = new Date(formData.dueDate)
+    const newProject = {
       title: formData.title,
       description: formData.description,
       goals: goals,
@@ -162,21 +137,21 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
       progress: progress,
       category: formData.category,
       startDate: new Date(),
-      dueDate: formData.dueDate,
+      dueDate: dueDateObj,
       priority: formData.priority,
-      taskStats: { 
-        total: tasks.length, 
-        completed: tasks.filter(t => t.completed).length 
-      },
       collaborators: 0,
       points: 0,
       color: categoryColors[formData.category as keyof typeof categoryColors] || "bg-primary",
       icon: categoryIcons[formData.category as keyof typeof categoryIcons] || Target
     }
 
-    onProjectCreated(newProject)
-    setOpen(false)
-    resetForm()
+    try {
+      await onProjectCreated(newProject)
+      setOpen(false)
+      resetForm()
+    } catch (error) {
+      console.error('Error creating project:', error)
+    }
   }
 
   return (
@@ -359,34 +334,30 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
           </div>
 
           <div className="space-y-2"> 
-            <Label>Target Completion Date *</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start text-left font-normal"
-                  type="button"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {formData.dueDate ? format(formData.dueDate, "PPP") : "Pick a date"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={formData.dueDate}
-                  onSelect={(date) => {
-                    setFormData(prev => ({ ...prev, dueDate: date }))
-                  }}
-                  disabled={(date) => {
-                    const today = new Date()
-                    today.setHours(0, 0, 0, 0)
-                    return date < today
-                  }}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
+            <Label htmlFor="dueDate">Target Completion Date *</Label>
+            <div className="relative">
+              <Input
+                ref={dateInputRef}
+                id="dueDate"
+                type="date"
+                value={formData.dueDate}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  setFormData(prev => ({ ...prev, dueDate: e.target.value }))
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onFocus={(e) => e.stopPropagation()}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full pl-10"
+                required
+              />
+              <CalendarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            </div>
+            {formData.dueDate && (
+              <p className="text-xs text-muted-foreground">
+                Selected: {format(new Date(formData.dueDate), "PPP")}
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">

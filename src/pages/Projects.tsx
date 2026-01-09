@@ -1,10 +1,13 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { CreateProjectDialog } from "@/components/CreateProjectDialog"
 import { CelebrationDialog } from "@/components/CelebrationDialog"
+import { ProjectActionsMenu } from "@/components/ProjectActionsMenu"
+import { ProjectDetailsView } from "@/components/ProjectDetailsView"
+import { databaseService } from "@/services/database.service"
 import { 
   FolderOpen, 
   Plus,
@@ -18,52 +21,156 @@ import {
   Briefcase,
   Heart,
   Book,
-  Dumbbell
+  Dumbbell,
+  Loader2
 } from "lucide-react"
+import { ChecklistItem, Project } from "../types/project.types"
 
-interface ChecklistItem {
-  id: string
-  text: string
-  completed: boolean
-}
-
-interface Project {
-  id: string
-  title: string
-  description: string
-  goals: ChecklistItem[]
-  tasks: ChecklistItem[]
-  progress: number
-  category: string
-  startDate: Date
-  dueDate: Date
-  priority: "low" | "medium" | "high"
-  taskStats: {
-    total: number
-    completed: number
+// Icon mapping function
+const getIconComponent = (iconName: string) => {
+  const iconMap: Record<string, any> = {
+    'Target': Target,
+    'Briefcase': Briefcase,
+    'Heart': Heart,
+    'Book': Book,
+    'Dumbbell': Dumbbell,
+    'FolderOpen': FolderOpen,
+    'Star': Star,
+    'Clock': Clock,
+    'CheckCircle': CheckCircle,
+    'Users': Users,
+    'Calendar': Calendar
   }
-  collaborators: number
-  points: number
-  color: string
-  icon: any
-}
-
-const initialProjects: Project[] = []
-
-const priorityColors = {
-  low: "bg-muted text-muted-foreground",
-  medium: "bg-warning/10 text-warning",
-  high: "bg-destructive/10 text-destructive"
+  return iconMap[iconName] || Target
 }
 
 export default function Projects() {
-  const [projects, setProjects] = useState<Project[]>(initialProjects)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedCategory, setSelectedCategory] = useState("All")
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [detailsViewOpen, setDetailsViewOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
 
-  const handleProjectCreated = (newProject: Project) => {
-    setProjects(prev => [newProject, ...prev])
+  // Load projects from database
+  useEffect(() => {
+    loadProjects()
+    
+    // Set up real-time subscription
+    const subscription = databaseService.subscribeToProjects((updatedProjects) => {
+      setProjects(updatedProjects)
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  const loadProjects = async () => {
+    try {
+      setLoading(true)
+      const projectsData = await databaseService.getProjects()
+      setProjects(projectsData)
+    } catch (error) {
+      console.error('Error loading projects:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleProjectCreated = async (newProject: Omit<Project, 'id' | 'startDate' | 'taskStats'>) => {
+    try {
+      const createdProject = await databaseService.createProject(newProject)
+      if (createdProject) {
+        setProjects(prev => [createdProject, ...prev])
+      }
+    } catch (error) {
+      console.error('Error creating project:', error)
+      // You could add a toast notification here
+    }
+  }
+
+  const handleOpenProject = async (project: Project) => {
+    try {
+      const fullProject = await databaseService.getProject(project.id)
+      if (fullProject) {
+        setSelectedProject(fullProject)
+        setDetailsViewOpen(true)
+      }
+    } catch (error) {
+      console.error('Error loading project details:', error)
+    }
+  }
+
+  const handleEditProject = async (project: Project) => {
+    try {
+      const fullProject = await databaseService.getProject(project.id)
+      if (fullProject) {
+        setEditingProject(fullProject)
+        setEditDialogOpen(true)
+      }
+    } catch (error) {
+      console.error('Error loading project for editing:', error)
+    }
+  }
+
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      await databaseService.deleteProject(projectId)
+      setProjects(prev => prev.filter(p => p.id !== projectId))
+    } catch (error) {
+      console.error('Error deleting project:', error)
+    }
+  }
+
+  const handleUpdateProgress = async (projectId: string, goals: ChecklistItem[], tasks: ChecklistItem[]) => {
+    try {
+      // Update goals in database
+      for (const goal of goals) {
+        await databaseService.updateGoal(goal.id, {
+          text: goal.text,
+          completed: goal.completed
+        })
+      }
+
+      // Update tasks in database
+      for (const task of tasks) {
+        await databaseService.updateTask(task.id, {
+          text: task.text,
+          completed: task.completed,
+          priority: task.priority,
+          dueTime: task.dueTime
+        })
+      }
+      
+      // Refresh the project data
+      const updatedProject = await databaseService.getProject(projectId)
+      if (updatedProject) {
+        setSelectedProject(updatedProject)
+        // Update projects list if needed
+        setProjects(prev => prev.map(p => p.id === projectId ? updatedProject : p))
+      }
+    } catch (error) {
+      console.error('Error updating progress:', error)
+    }
   }
   
+  const priorityColors = {
+    low: "bg-muted text-muted-foreground",
+    medium: "bg-warning/10 text-warning",
+    high: "bg-destructive/10 text-destructive"
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-muted-foreground">Loading projects...</span>
+      </div>
+    )
+  }
+
   const categories = ["All", ...Array.from(new Set(projects.map(p => p.category)))]
   const filteredProjects = selectedCategory === "All" 
     ? projects 
@@ -157,7 +264,7 @@ export default function Projects() {
       {/* Projects Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {filteredProjects.map(project => {
-          const IconComponent = project.icon
+          const IconComponent = getIconComponent(project.icon)
           const timeLeft = Math.ceil((project.dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
           
           return (
@@ -175,9 +282,12 @@ export default function Projects() {
                     </div>
                   </div>
                   
-                  <Button variant="ghost" size="icon">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
+                  <ProjectActionsMenu
+                    project={project}
+                    onOpenProject={handleOpenProject}
+                    onEditProject={handleEditProject}
+                    onDeleteProject={handleDeleteProject}
+                  />
                 </div>
 
                 {/* Progress */}
@@ -239,25 +349,18 @@ export default function Projects() {
         })}
       </div>
 
-      {/* Achievement Banner */}
-      <Card className="p-6 gradient-success text-white">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-white/20 rounded-full">
-            <Target className="h-8 w-8" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-xl font-bold">Project Milestone Reached!</h3>
-            <p className="text-white/90">
-              You're making amazing progress on your long-term goals. Keep pushing forward!
-            </p>
-          </div>
-          <CelebrationDialog>
-            <Button variant="glass" size="lg">
-              Celebrate
-            </Button>
-          </CelebrationDialog>
-        </div>
-      </Card>
+      {/* Project Details View */}
+      <ProjectDetailsView
+        project={selectedProject}
+        open={detailsViewOpen}
+        onClose={() => {
+          setDetailsViewOpen(false)
+          setSelectedProject(null)
+        }}
+        onEditProject={handleEditProject}
+        onDeleteProject={handleDeleteProject}
+        onUpdateProgress={handleUpdateProgress}
+      />
 
       {/* Empty State */}
       {filteredProjects.length === 0 && (
