@@ -37,9 +37,11 @@ const menuItems = [
 ]
 
 export function AppSidebar() {
-  const { state, setOpen } = useSidebar()
+  const { state, setOpen, isMobile, setOpenMobile } = useSidebar()
   const { user } = useUser()
-  const collapsed = state === "collapsed"
+  // Fix: On mobile, we always want the "expanded" layout inside the sheet/drawer.
+  // The 'state' variable tracks desktop collapse preference, which shouldn't affect mobile view.
+  const collapsed = isMobile ? false : state === "collapsed"
   const location = useLocation()
   const currentPath = location.pathname
 
@@ -51,8 +53,16 @@ export function AppSidebar() {
   const progressPercentage = Math.max(0, Math.min(100, (pointsInCurrentLevel / pointsPerLevel) * 100))
 
   const handleNavClick = () => {
-    // Auto-close sidebar on navigation (especially useful on mobile)
-    setOpen(false)
+    // Auto-close sidebar on navigation
+    if (isMobile) {
+      setOpenMobile(false)
+    } else {
+      // Optional: Close on desktop if desired, but usually sidebar stays.
+      // Keeping original behavior: setOpen(false) if that was intended, 
+      // but usually desktop sidebars stay open. 
+      // The original code had setOpen(false), assuming it was intended for mobile.
+      // We'll leave desktop alone to be persistent unless user explicitly collapses.
+    }
   }
 
   const isActive = (path: string) => {

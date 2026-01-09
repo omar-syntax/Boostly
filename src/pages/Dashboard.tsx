@@ -97,9 +97,50 @@ export default function Dashboard() {
   const habitsCompletedToday = habits.filter(h => h.completedToday).length
   const totalHabits = habits.length
 
+  // Calculate daily focus minutes from fetched sessions
+  const [dailyFocusMinutes, setDailyFocusMinutes] = useState(0)
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const fetchFocusData = async () => {
+      const startOfDay = `${selectedDate}T00:00:00.000Z`
+      const endOfDay = `${selectedDate}T23:59:59.999Z`
+
+      const { data: focusData, error } = await supabase
+        .from('focus_sessions')
+        .select('duration')
+        .eq('user_id', user.id)
+        .gte('completed_at', startOfDay)
+        .lte('completed_at', endOfDay)
+
+      if (focusData) {
+        const totalMinutes = focusData.reduce((sum, session) => sum + session.duration, 0)
+        setDailyFocusMinutes(Math.round(totalMinutes))
+      }
+    }
+
+    fetchFocusData()
+  }, [user?.id, selectedDate])
+
+
   // Calculate category breakdown
   const taskPoints = tasks.filter(t => t.completed).reduce((sum, t) => sum + (t.points || 0), 0)
   const habitPoints = habits.filter(h => h.completedToday).reduce((sum, h) => sum + (h.points || 0), 0)
+  // Approximate points for focus (assuming mostly work sessions ~50pts/25min = 2pts/min)
+  // Or better, fetch points from DB if available. Let's start with simple minutes display first as requested.
+  // For the pie chart 'Focus', we can use a rough estimate or 0 if we don't want to overcomplicate.
+  // Actually, 'focus_sessions' has 'points_earned'. 
+  // Let's improve the fetch above to include points if we want accurate Breakdown, but user main request is TIME display.
+  // Let's stick to the user main request: "Focus Time shows decimal... display it in user-friendly way".
+  // The pie chart breakdown uses 'Focus' value 0 currently.
+  // Let's leave the pie chart specific points calculation for now to keep changes focused, 
+  // but if we want to be thorough, we can fetch points too.
+  // The original code had: { name: 'Focus', value: 0, color: 'hsl(var(--warning))' }
+  // I will leave it as 0 or maybe I should fix it? 
+  // The user didn't explicitly complain about the pie chart, but about "Focus Time shows ...".
+  // I will focus on the time display first.
+
   const totalPointsFromActivities = taskPoints + habitPoints
 
   const categoryData = totalPointsFromActivities > 0 ? [
@@ -191,7 +232,7 @@ export default function Dashboard() {
               <Timer className="h-6 w-6 text-warning" />
             </div>
             <div>
-              <div className="text-2xl font-bold">{user.focusHours}h</div>
+              <div className="text-2xl font-bold">{dailyFocusMinutes}m</div>
               <div className="text-sm text-muted-foreground">Focus Time</div>
             </div>
           </div>

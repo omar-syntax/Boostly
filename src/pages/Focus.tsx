@@ -7,24 +7,19 @@ import { FocusStatsDialog } from "@/components/FocusStatsDialog"
 import { useUser } from "@/contexts/UserContext"
 import { playCompletionSound } from "@/utils/sounds"
 import { supabase } from "@/lib/supabase"
-import { TreeIcon } from "@/components/Forest/TreeIcon"
+import { ForestContainer } from "@/components/Forest/ForestContainer"
 import { useFocusTimer, SessionType } from "@/hooks/useFocusTimer"
 import {
-  Timer,
   Play,
   Pause,
   RotateCcw,
   Settings,
-  Coffee,
   Target,
-  Star,
   Clock,
   Zap,
   Volume2,
   VolumeX,
-  ArrowRight
 } from "lucide-react"
-import { Link } from "react-router-dom"
 
 const POMODORO_TIME = 25 * 60
 const SHORT_BREAK = 5 * 60
@@ -36,16 +31,63 @@ interface FocusSession {
   duration: number
   completedAt: Date
   points: number
+  tree_type?: string
 }
-
-// Initial demo data for stats 
-const todaySessions: FocusSession[] = []
 
 export default function Focus() {
   const { user, updateUser } = useUser()
-  const [sessions, setSessions] = useState<FocusSession[]>(todaySessions)
+  const [sessions, setSessions] = useState<FocusSession[]>([]) // For stats (Today)
+  const [forestSessions, setForestSessions] = useState<any[]>([]) // For Forest (All time)
   const [currentSession, setCurrentSession] = useState(1)
   const [soundEnabled, setSoundEnabled] = useState(true)
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    if (!user?.id) return
+
+    const fetchSessions = async () => {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+
+      const { data, error } = await supabase
+        .from('focus_sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('completed', true)
+        .order('completed_at', { ascending: true }) // Oldest first for Forest growth
+
+      if (error) {
+        console.error('Error fetching sessions:', error)
+        return
+      }
+
+      // Process for Forest (All time, ordered by date for stable index)
+      setForestSessions(data || [])
+
+      // Process for Dashboard Stats (Today only)
+      const todaySessionsRaw = data?.filter(s => new Date(s.completed_at) >= today) || []
+
+      const mapType = (points: number): SessionType => {
+        if (points === 50) return 'work'
+        if (points === 10) return 'shortBreak'
+        if (points === 15) return 'longBreak'
+        return 'work'
+      }
+
+      const mappedTodaySessions: FocusSession[] = todaySessionsRaw.map(s => ({
+        id: s.id,
+        type: mapType(s.points_earned),
+        duration: s.duration,
+        completedAt: new Date(s.completed_at),
+        points: s.points_earned,
+        tree_type: s.tree_type
+      })).reverse() // Show newest first in list
+
+      setSessions(mappedTodaySessions)
+    }
+
+    fetchSessions()
+  }, [user?.id])
 
   const sessionDurations = {
     work: POMODORO_TIME,
@@ -93,18 +135,24 @@ export default function Focus() {
       })
 
       // Save to Supabase (Forest)
-      if (completedType === "work") {
-        supabase.from('focus_sessions').insert({
-          user_id: user.id,
-          duration: durationMinutes,
-          completed: true,
-          tree_type: treeType,
-          points_earned: pointsEarned,
-          completed_at: new Date().toISOString()
-        }).then(({ error }) => {
-          if (error) console.error("Error saving focus session:", error)
-        })
+      const newSessionData = {
+        user_id: user.id,
+        duration: durationMinutes,
+        completed: true,
+        tree_type: treeType,
+        points_earned: pointsEarned,
+        completed_at: new Date().toISOString()
       }
+
+      supabase.from('focus_sessions').insert(newSessionData)
+        .select()
+        .then(({ data, error }) => {
+          if (error) console.error("Error saving focus session:", error)
+          if (data) {
+            // Update local forest state
+            setForestSessions(prev => [...prev, data[0]])
+          }
+        })
     }
 
     // Record Session Locally (for this view)
@@ -113,7 +161,8 @@ export default function Focus() {
       type: completedType,
       duration: durationMinutes,
       completedAt: new Date(),
-      points: sessionPoints[completedType]
+      points: sessionPoints[completedType],
+      tree_type: treeType
     }
 
     setSessions(prev => [newSession, ...prev])
@@ -128,7 +177,6 @@ export default function Focus() {
         setCurrentSession(prev => prev + 1)
       }
 
-      // We must reset the timer with the new type's duration
       timer.setType(nextType)
       timer.reset(sessionDurations[nextType])
     } else {
@@ -153,99 +201,65 @@ export default function Focus() {
     timer.reset(sessionDurations[type])
   }
 
-  // Tree Animation Calc
-  const treeScale = 0.5 + (0.5 * (timer.progress / 100))
-
   const completedToday = sessions.filter(s => s.type === "work").length
   const pointsToday = sessions.reduce((sum, s) => sum + s.points, 0)
   const focusTimeToday = sessions.filter(s => s.type === "work").reduce((sum, s) => sum + s.duration, 0)
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Focus Room</h1>
-          <p className="text-muted-foreground">Boost your productivity with focused work sessions</p>
-        </div>
+    <div className="flex flex-col md:h-[calc(100vh-2rem)] gap-4 md:flex-row overflow-hidden">
 
-        <div className="flex items-center gap-4">
-          <Link to="/forest">
-            <Button variant="outline" className="gap-2 text-success border-success/20 hover:bg-success/5">
-              <TreeIcon type="tree" className="h-4 w-4" />
-              Go to Forest
-              <ArrowRight className="h-4 w-4" />
+      {/* Left Section: Timer & Controls (50%) */}
+      <div className="w-full md:w-1/2 flex flex-col gap-4 overflow-y-auto pr-2 pb-20 md:pb-2">
+
+        {/* Header */}
+        <div className="flex items-center justify-between shrink-0">
+          <div>
+            <h1 className="text-3xl font-bold">Focus Room</h1>
+            <p className="text-muted-foreground">Stay focused, grow your forest.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={() => setSoundEnabled(!soundEnabled)}>
+              {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
-          </Link>
-          <Button variant="outline" size="icon" onClick={() => setSoundEnabled(!soundEnabled)}>
-            {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </Button>
-          <Button variant="outline" size="icon">
-            <Settings className="h-4 w-4" />
-          </Button>
+            <Button variant="outline" size="icon">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {/* Today's Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="p-6 glass-card">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-full bg-primary/10">
-              <Target className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{completedToday}</div>
-              <div className="text-sm text-muted-foreground">Sessions Today</div>
-            </div>
-          </div>
-        </Card>
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 shrink-0">
+          <Card className="p-3 glass-card flex flex-col items-center justify-center">
+            <div className="text-xl font-bold">{completedToday}</div>
+            <div className="text-xs text-muted-foreground">Sessions</div>
+          </Card>
+          <Card className="p-3 glass-card flex flex-col items-center justify-center">
+            <div className="text-xl font-bold">{focusTimeToday}m</div>
+            <div className="text-xs text-muted-foreground">Focus</div>
+          </Card>
+          <Card className="p-3 glass-card flex flex-col items-center justify-center">
+            <div className="text-xl font-bold">{pointsToday}</div>
+            <div className="text-xs text-muted-foreground">Points</div>
+          </Card>
+          <Card className="p-3 glass-card flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-colors">
+            <FocusStatsDialog>
+              <div className="flex flex-col items-center">
+                <Zap className="h-5 w-5 text-primary mb-1" />
+                <div className="text-xs font-medium">Stats</div>
+              </div>
+            </FocusStatsDialog>
+          </Card>
+        </div>
 
-        <Card className="p-6 glass-card">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-full bg-warning/10">
-              <Clock className="h-6 w-6 text-warning" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{focusTimeToday}m</div>
-              <div className="text-sm text-muted-foreground">Focus Time</div>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6 glass-card">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-full bg-motivation/10">
-              <Star className="h-6 w-6 text-motivation" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{pointsToday}</div>
-              <div className="text-sm text-muted-foreground">Points Earned</div>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6 glass-card">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-full bg-success/10">
-              <Zap className="h-6 w-6 text-success" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{Math.round((completedToday / 8) * 100)}%</div>
-              <div className="text-sm text-muted-foreground">Daily Goal</div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Main Timer */}
-      <Card className="p-8">
-        <div className="max-w-md mx-auto text-center space-y-6">
+        {/* Main Timer */}
+        <Card className="p-8 flex flex-col items-center justify-center grow shrink-0 min-h-[400px]">
           {/* Session Type Selector */}
-          <div className="flex justify-center gap-2">
+          <div className="flex justify-center gap-2 mb-8">
             <Button
               variant={timer.type === "work" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("work")}
+              className="rounded-full px-6"
             >
               Focus
             </Button>
@@ -253,6 +267,7 @@ export default function Focus() {
               variant={timer.type === "shortBreak" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("shortBreak")}
+              className="rounded-full px-6"
             >
               Short Break
             </Button>
@@ -260,154 +275,114 @@ export default function Focus() {
               variant={timer.type === "longBreak" ? "default" : "outline"}
               size="sm"
               onClick={() => switchSessionType("longBreak")}
+              className="rounded-full px-6"
             >
               Long Break
             </Button>
           </div>
 
-          {/* Current Session Info */}
-          <div>
-            <h2 className="text-xl font-semibold mb-2">{sessionLabels[timer.type]}</h2>
-            <Badge variant="outline">Session {currentSession}/4</Badge>
-          </div>
-
-          {/* Growing Tree Animation Area */}
-          <div className="flex items-center justify-center h-24 relative">
-            {timer.type === 'work' ? (
-              <div style={{ transform: `scale(${timer.state === 'running' || timer.progress > 0 ? treeScale : 0.5})` }} className="transition-transform duration-1000 ease-in-out">
-                <TreeIcon
-                  type={getTreeType(sessionDurations[timer.type] / 60)}
-                  stage={timer.progress < 20 ? 'seed' : timer.progress < 50 ? 'sapling' : 'growing'}
-                  className="w-16 h-16"
-                />
-              </div>
-            ) : (
-              <Coffee className="w-12 h-12 text-muted-foreground/50 animate-pulse" />
-            )}
-          </div>
-
           {/* Timer Display */}
-          <div className="relative">
+          <div className="relative text-center mb-8">
             <div
-              className={`text-8xl font-bold mb-4 ${timer.type === "work" ? "text-primary" :
+              className={`text-8xl md:text-9xl font-bold mb-4 tabular-nums tracking-tight ${timer.type === "work" ? "text-primary" :
                 timer.type === "shortBreak" ? "text-success" : "text-secondary"
                 }`}
             >
               {formatTime(timer.timeLeft)}
             </div>
 
+            <Badge variant="outline" className="text-lg px-4 py-1">
+              {sessionLabels[timer.type]} • Session {currentSession}/4
+            </Badge>
+          </div>
+
+          <div className="w-full max-w-sm space-y-6">
             <Progress
               value={timer.progress}
-              className="w-full h-2 mb-6"
+              className="w-full h-3"
             />
-          </div>
 
-          {/* Timer Controls */}
-          <div className="flex justify-center gap-4">
-            {timer.state === "idle" || timer.state === "paused" ? (
+            {/* Controls */}
+            <div className="flex justify-center gap-4">
+              {timer.state === "idle" || timer.state === "paused" ? (
+                <Button
+                  onClick={timer.start}
+                  size="lg"
+                  className="gradient-primary px-12 h-14 text-lg rounded-full shadow-lg hover:shadow-xl transition-all"
+                >
+                  <Play className="h-6 w-6 mr-2 fill-current" />
+                  {timer.state === "paused" ? "Resume" : "Start"}
+                </Button>
+              ) : (
+                <Button
+                  onClick={timer.pause}
+                  size="lg"
+                  variant="secondary"
+                  className="px-12 h-14 text-lg rounded-full"
+                >
+                  <Pause className="h-6 w-6 mr-2 fill-current" />
+                  Pause
+                </Button>
+              )}
+
               <Button
-                onClick={timer.start}
+                onClick={() => timer.reset(sessionDurations[timer.type])}
                 size="lg"
-                className="gradient-primary px-8"
+                variant="outline"
+                className="h-14 w-14 rounded-full p-0"
               >
-                <Play className="h-5 w-5 mr-2" />
-                {timer.state === "paused" ? "Resume" : "Start"}
+                <RotateCcw className="h-6 w-6" />
               </Button>
-            ) : (
-              <Button
-                onClick={timer.pause}
-                size="lg"
-                variant="secondary"
-                className="px-8"
-              >
-                <Pause className="h-5 w-5 mr-2" />
-                Pause
-              </Button>
-            )}
-
-            <Button
-              onClick={() => timer.reset(sessionDurations[timer.type])}
-              size="lg"
-              variant="outline"
-            >
-              <RotateCcw className="h-5 w-5 mr-2" />
-              Reset
-            </Button>
-          </div>
-
-          {/* Session Info */}
-          <div className="text-sm text-muted-foreground">
-            <p>Earn <span className="font-semibold text-warning">{sessionPoints[timer.type]} points</span> when you complete this session</p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Recent Sessions */}
-      <Card className="p-6">
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-2">Today's Sessions</h3>
-          <p className="text-sm text-muted-foreground">Your focus sessions for today</p>
-        </div>
-
-        <div className="space-y-3">
-          {sessions.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Timer className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No sessions completed today</p>
-              <p className="text-sm">Start your first focus session above!</p>
             </div>
-          ) : (
-            sessions.map(session => (
-              <div key={session.id} className="flex items-center justify-between p-4 border border-border rounded-lg">
-                <div className="flex items-center gap-4">
-                  <div className={`p-2 rounded-full ${session.type === "work" ? "bg-primary/10" :
-                    session.type === "shortBreak" ? "bg-success/10" : "bg-secondary/10"
-                    }`}>
-                    {session.type === "work" ?
-                      <Target className="h-5 w-5 text-primary" /> :
-                      <Coffee className="h-5 w-5 text-success" />
-                    }
-                  </div>
+          </div>
+        </Card>
 
-                  <div>
-                    <div className="font-medium">
-                      {sessionLabels[session.type]}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {session.duration} minutes • {session.completedAt.toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
+        {/* Today's History (Compact) */}
+        <Card className="p-4 flex-1 overflow-hidden flex flex-col min-h-[200px]">
+          <h3 className="font-semibold mb-3 flex items-center gap-2">
+            <Clock className="h-4 w-4" /> Recent Activity
+          </h3>
+          <div className="space-y-2 overflow-y-auto pr-2">
+            {sessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No sessions today</p>
+            ) : (
+              sessions.map(session => (
+                <div key={session.id} className="flex items-center justify-between text-sm p-2 rounded hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${session.type === 'work' ? 'bg-primary' : 'bg-success'}`} />
+                    <span>{sessionLabels[session.type]}</span>
+                  </div>
+                  <div className="text-muted-foreground">
+                    {session.duration}m • {session.completedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
+              ))
+            )}
+          </div>
+        </Card>
 
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">
-                    <Star className="h-3 w-3 mr-1" />
-                    {session.points}
-                  </Badge>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
+      </div>
 
-      {/* Motivational Section */}
-      <Card className="p-6 gradient-hero text-white">
-        <div className="text-center">
-          <h3 className="text-xl font-bold mb-2">🎯 Focus Mode Active</h3>
-          <p className="text-white/90 mb-4">
-            Deep work is like a superpower in our increasingly competitive economy. Stay focused and achieve more!
-          </p>
-          <FocusStatsDialog>
-            <Button variant="glass" size="lg">
-              View Focus Statistics
-            </Button>
-          </FocusStatsDialog>
+      {/* Right Section: Forest (50%) */}
+      {/* Mobile: Order 2 (default). Desktop: same. Flex-col flips it on mobile? No, flex-col stacks them. */}
+      {/* On mobile we want trees below focus. Flex-col puts first child on top. So Timer is top. Correct. */}
+      <div className="w-full md:w-1/2 h-[400px] md:h-full relative rounded-xl overflow-hidden shadow-2xl border border-border/50 shrink-0">
+        <ForestContainer
+          sessions={forestSessions}
+          currentSession={{
+            active: timer.type === 'work' && (timer.state === 'running' || timer.progress > 0),
+            progress: timer.progress / 100, // Normalize to 0-1
+            type: 'tree' // Simplified
+          }}
+          className="w-full h-full"
+        />
+
+        {/* Overlay Info */}
+        <div className="absolute top-4 right-4 bg-background/80 backdrop-blur px-3 py-1 rounded badge border border-border/50 text-xs font-mono z-20">
+          Total Trees: {forestSessions.length}
         </div>
-      </Card>
+      </div>
+
     </div>
   )
 }

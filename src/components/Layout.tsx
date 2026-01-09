@@ -78,13 +78,13 @@ function LayoutContent({ children, notificationOpen, setNotificationOpen }: {
   }
 
   return (
-    <div className="min-h-screen flex w-full bg-background">
+    <div className="min-h-screen flex w-full bg-background overflow-x-hidden">
       <AppSidebar />
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="h-16 border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-50">
-          <div className="flex items-center justify-between h-full px-6">
+        <header className="h-16 border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-50 shrink-0">
+          <div className="flex items-center justify-between h-full px-4 md:px-6">
             <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
@@ -177,7 +177,7 @@ function LayoutContent({ children, notificationOpen, setNotificationOpen }: {
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 bg-gradient-to-br from-background to-surface">
+        <main className="flex-1 p-4 md:p-6 bg-gradient-to-br from-background to-surface overflow-x-hidden w-full">
           {children}
         </main>
       </div>
