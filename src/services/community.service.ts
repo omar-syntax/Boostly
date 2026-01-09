@@ -35,6 +35,9 @@ export async function createPost(userId: string, postData: CreatePostData): Prom
 
         if (error) return { data: null, error }
 
+        // Update user's last active timestamp
+        await updateUserLastActive(userId)
+
         // Fetch the complete post with author info
         const { data: fullPost, error: fetchError } = await getPostById(data.id, userId)
 
@@ -378,6 +381,9 @@ export async function createComment(
 
         if (error) return { data: null, error }
 
+        // Update user's last active timestamp
+        await updateUserLastActive(userId)
+
         const profile = data.profiles
         const initials = profile.full_name
             ? profile.full_name
@@ -427,6 +433,122 @@ export async function deleteComment(commentId: string, userId: string): Promise<
 }
 
 /**
+ * Toggle like on a comment
+ */
+export async function toggleCommentLike(commentId: string, userId: string): Promise<{ liked: boolean; error: any }> {
+    try {
+        // Check if already liked
+        const { data: existingLike } = await supabase
+            .from('comment_likes')
+            .select('id')
+            .eq('comment_id', commentId)
+            .eq('user_id', userId)
+            .single()
+
+        if (existingLike) {
+            // Unlike
+            const { error } = await supabase
+                .from('comment_likes')
+                .delete()
+                .eq('comment_id', commentId)
+                .eq('user_id', userId)
+
+            // Update user's last active timestamp
+            if (!error) {
+                await updateUserLastActive(userId)
+            }
+
+            return { liked: false, error }
+        } else {
+            // Like
+            const { error } = await supabase
+                .from('comment_likes')
+                .insert({
+                    comment_id: commentId,
+                    user_id: userId,
+                })
+
+            // Update user's last active timestamp
+            if (!error) {
+                await updateUserLastActive(userId)
+            }
+
+            return { liked: true, error }
+        }
+    } catch (error) {
+        console.error('Error toggling comment like:', error)
+        return { liked: false, error }
+    }
+}
+
+/**
+ * Check if a user has liked a specific comment (using database function to bypass RLS issues)
+ */
+export async function getUserCommentLike(commentId: string, userId: string): Promise<{ liked: boolean; error: any }> {
+    try {
+        // Use the database function to bypass RLS issues
+        const { data, error } = await supabase
+            .rpc('user_liked_comment', { 
+                comment_uuid: commentId, 
+                user_uuid: userId 
+            })
+
+        return { liked: !!data, error }
+    } catch (error) {
+        console.error('Error checking comment like:', error)
+        return { liked: false, error }
+    }
+}
+
+/**
+ * Get all likes for a specific comment
+ */
+export async function getCommentLikes(commentId: string): Promise<{ data: any[] | null; error: any }> {
+    try {
+        const { data, error } = await supabase
+            .from('comment_likes')
+            .select(`
+                *,
+                profiles:user_id (
+                    id,
+                    full_name,
+                    avatar_url
+                )
+            `)
+            .eq('comment_id', commentId)
+            .order('created_at', { ascending: false })
+
+        return { data, error }
+    } catch (error) {
+        console.error('Error fetching comment likes:', error)
+        return { data: null, error }
+    }
+}
+
+/**
+ * Subscribe to comment likes for a specific comment
+ */
+export function subscribeToCommentLikes(commentId: string, callback: (like: any) => void) {
+    const channel = supabase
+        .channel(`comment_likes_${commentId}`)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'comment_likes',
+                filter: `comment_id=eq.${commentId}`,
+            },
+            (payload) => {
+                callback(payload)
+            }
+        )
+        .subscribe()
+
+    return channel
+}
+
+/**
  * Toggle like on a post
  */
 export async function toggleLike(postId: string, userId: string): Promise<{ liked: boolean; error: any }> {
@@ -457,6 +579,11 @@ export async function toggleLike(postId: string, userId: string): Promise<{ like
                     user_id: userId,
                 })
 
+            // Update user's last active timestamp
+            if (!error) {
+                await updateUserLastActive(userId)
+            }
+
             return { liked: true, error }
         }
     } catch (error) {
@@ -476,6 +603,11 @@ export async function sharePost(postId: string, userId: string): Promise<{ error
                 post_id: postId,
                 user_id: userId,
             })
+
+        // Update user's last active timestamp
+        if (!error) {
+            await updateUserLastActive(userId)
+        }
 
         return { error }
     } catch (error) {
@@ -550,4 +682,141 @@ export function subscribeToPostLikes(postId: string, callback: (like: any) => vo
         .subscribe()
 
     return channel
+}
+
+/**
+ * Get community statistics
+ */
+export async function getCommunityStats(): Promise<{ data: CommunityStats | null; error: any }> {
+    try {
+        // Use the community_stats view for efficient querying
+        const { data, error } = await supabase
+            .from('community_stats')
+            .select('*')
+            .single()
+
+        if (error) {
+            // If view doesn't exist or has issues, fall back to manual calculation
+            console.warn('Community stats view not available, using manual calculation:', error)
+            return await getCommunityStatsManual()
+        }
+
+        const stats: CommunityStats = {
+            activeMembers: data.active_members || 0,
+            postsToday: data.posts_today || 0,
+            achievementsShared: data.achievements_shared || 0,
+            engagementRate: parseFloat(data.engagement_rate) || 0
+        }
+
+        return { data: stats, error: null }
+    } catch (error) {
+        console.error('Error fetching community stats:', error)
+        return { data: null, error }
+    }
+}
+
+/**
+ * Manual calculation of community stats (fallback method)
+ */
+async function getCommunityStatsManual(): Promise<{ data: CommunityStats | null; error: any }> {
+    try {
+        const now = new Date()
+        const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+        // Get active members (users active in last 24 hours)
+        const { data: activeMembersData } = await supabase
+            .from('profiles')
+            .select('id')
+            .gte('last_active_at', twentyFourHoursAgo.toISOString())
+
+        // Get posts today
+        const { data: postsTodayData } = await supabase
+            .from('community_posts')
+            .select('id')
+            .gte('created_at', todayStart.toISOString())
+
+        // Get achievements shared
+        const { data: achievementsSharedData } = await supabase
+            .from('community_posts')
+            .select('id')
+            .eq('type', 'achievement')
+            .eq('shared', true)
+
+        // Get total interactions for engagement rate
+        const [postsCount, likesCount, commentsCount, sharesCount, focusSessionsCount] = await Promise.all([
+            supabase.from('community_posts').select('id', { count: 'exact', head: true }),
+            supabase.from('post_likes').select('id', { count: 'exact', head: true }),
+            supabase.from('post_comments').select('id', { count: 'exact', head: true }),
+            supabase.from('post_shares').select('id', { count: 'exact', head: true }),
+            supabase.from('focus_sessions').select('id', { count: 'exact', head: true })
+                .gte('completed_at', todayStart.toISOString())
+        ])
+
+        const activeMembers = activeMembersData?.length || 0
+        const postsToday = postsTodayData?.length || 0
+        const achievementsShared = achievementsSharedData?.length || 0
+        
+        const totalInteractions = 
+            (postsCount.count || 0) + 
+            (likesCount.count || 0) + 
+            (commentsCount.count || 0) + 
+            (sharesCount.count || 0) + 
+            (focusSessionsCount.count || 0)
+
+        const engagementRate = activeMembers > 0 
+            ? Math.round((totalInteractions / activeMembers) * 100) 
+            : 0
+
+        const stats: CommunityStats = {
+            activeMembers,
+            postsToday,
+            achievementsShared,
+            engagementRate
+        }
+
+        return { data: stats, error: null }
+    } catch (error) {
+        console.error('Error calculating community stats manually:', error)
+        return { data: null, error }
+    }
+}
+
+/**
+ * Update user's last active timestamp
+ */
+export async function updateUserLastActive(userId: string): Promise<{ error: any }> {
+    try {
+        const { error } = await supabase
+            .from('profiles')
+            .update({ last_active_at: new Date().toISOString() })
+            .eq('id', userId)
+
+        return { error }
+    } catch (error) {
+        console.error('Error updating user last active:', error)
+        return { error }
+    }
+}
+
+/**
+ * Mark an achievement post as shared
+ */
+export async function shareAchievement(postId: string, userId: string): Promise<{ error: any }> {
+    try {
+        const { error } = await supabase
+            .from('community_posts')
+            .update({ 
+                shared: true, 
+                shared_at: new Date().toISOString() 
+            })
+            .eq('id', postId)
+            .eq('user_id', userId)
+            .eq('type', 'achievement')
+
+        return { error }
+    } catch (error) {
+        console.error('Error sharing achievement:', error)
+        return { error }
+    }
 }

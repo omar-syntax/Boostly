@@ -9,7 +9,7 @@ import { CreatePostDialog } from "@/components/CreatePostDialog"
 import { useUser } from "@/contexts/UserContext"
 import { useAuth } from "@/contexts/AuthContext"
 import * as communityService from "@/services/community.service"
-import type { CommunityPost, PostComment } from "@/types/community.types"
+import type { CommunityPost, PostComment, CommunityStats } from "@/types/community.types"
 import { supabase } from "@/lib/supabase"
 import {
   Heart,
@@ -17,7 +17,6 @@ import {
   Share,
   Plus,
   Video,
-  BookOpen,
   Trophy,
   Target,
   Zap,
@@ -38,21 +37,6 @@ interface Podcast {
   thumbnail: string
   duration?: string
 }
-
-const trendingTopics = [
-  { name: "Morning Routines", posts: 234, growth: "+12%" },
-  { name: "Habit Stacking", posts: 189, growth: "+8%" },
-  { name: "Focus Techniques", posts: 167, growth: "+15%" },
-  { name: "Goal Setting", posts: 145, growth: "+5%" },
-  { name: "Mindfulness", posts: 123, growth: "+18%" }
-]
-
-const topContributors = [
-  { name: "Sarah Chen", points: 2450, posts: 67, badge: "🏆" },
-  { name: "Mike Johnson", points: 2340, posts: 52, badge: "🥈" },
-  { name: "Emma Rodriguez", points: 2280, posts: 48, badge: "🥉" },
-  { name: "Alex Kim", points: 1890, posts: 41, badge: "⭐" }
-]
 
 const podcastsData: Podcast[] = [
   {
@@ -105,6 +89,9 @@ export default function Community() {
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
   const [comments, setComments] = useState<Record<string, PostComment[]>>({})
   const [loadingComments, setLoadingComments] = useState<Set<string>>(new Set())
+  const [commentLikes, setCommentLikes] = useState<Record<string, boolean>>({})
+  const [communityStats, setCommunityStats] = useState<CommunityStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
 
   // Load posts from database
   useEffect(() => {
@@ -140,6 +127,28 @@ export default function Community() {
     }
   }, [user?.id])
 
+  // Load community statistics
+  useEffect(() => {
+    const loadCommunityStats = async () => {
+      setStatsLoading(true)
+      const { data, error } = await communityService.getCommunityStats()
+      
+      if (error) {
+        console.error('Error loading community stats:', error)
+      } else if (data) {
+        setCommunityStats(data)
+      }
+      setStatsLoading(false)
+    }
+
+    loadCommunityStats()
+    
+    // Refresh stats every 5 minutes
+    const interval = setInterval(loadCommunityStats, 5 * 60 * 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
+
   // Load comments when a post's comments are expanded
   useEffect(() => {
     expandedComments.forEach(async (postId) => {
@@ -148,7 +157,26 @@ export default function Community() {
         const { data } = await communityService.getPostComments(postId)
         if (data) {
           setComments(prev => ({ ...prev, [postId]: data }))
+          
+          // Load comment likes for each comment using the new safe function
+          const commentLikesPromises = data.map(async (comment) => {
+            const { liked, error } = await communityService.getUserCommentLike(comment.id, user.id)
+            if (error) {
+              console.error('Error loading comment like:', error)
+              return { commentId: comment.id, liked: false }
+            }
+            return { commentId: comment.id, liked }
+          })
+          
+          const commentLikesResults = await Promise.all(commentLikesPromises)
+          const newCommentLikes = commentLikesResults.reduce((acc, result) => {
+            acc[result.commentId] = result.liked
+            return acc
+          }, {} as Record<string, boolean>)
+          
+          setCommentLikes(prev => ({ ...prev, ...newCommentLikes }))
         }
+        
         setLoadingComments(prev => {
           const newSet = new Set(prev)
           newSet.delete(postId)
@@ -241,6 +269,23 @@ export default function Community() {
     }
   }
 
+  const toggleCommentLike = async (commentId: string) => {
+    if (!user?.id) return
+
+    const { liked, error } = await communityService.toggleCommentLike(commentId, user.id)
+    
+    if (error) {
+      console.error('Error toggling comment like:', error)
+      return
+    }
+
+    // Update local state to reflect the like/unlike
+    setCommentLikes(prev => ({
+      ...prev,
+      [commentId]: liked
+    }))
+  }
+
   const filters = ["All", "Achievement", "Tips", "Motivation", "Videos"]
   const filteredPosts = activeFilter === "All"
     ? posts
@@ -313,7 +358,13 @@ export default function Community() {
               <Users className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <div className="text-2xl font-bold">12.4k</div>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  communityStats?.activeMembers.toLocaleString() || '0'
+                )}
+              </div>
               <div className="text-sm text-muted-foreground">Active Members</div>
             </div>
           </div>
@@ -325,7 +376,13 @@ export default function Community() {
               <MessageCircle className="h-6 w-6 text-secondary" />
             </div>
             <div>
-              <div className="text-2xl font-bold">1.2k</div>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  communityStats?.postsToday.toLocaleString() || '0'
+                )}
+              </div>
               <div className="text-sm text-muted-foreground">Posts Today</div>
             </div>
           </div>
@@ -337,7 +394,13 @@ export default function Community() {
               <Trophy className="h-6 w-6 text-success" />
             </div>
             <div>
-              <div className="text-2xl font-bold">847</div>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  communityStats?.achievementsShared.toLocaleString() || '0'
+                )}
+              </div>
               <div className="text-sm text-muted-foreground">Achievements Shared</div>
             </div>
           </div>
@@ -349,7 +412,13 @@ export default function Community() {
               <TrendingUp className="h-6 w-6 text-motivation" />
             </div>
             <div>
-              <div className="text-2xl font-bold">94%</div>
+              <div className="text-2xl font-bold">
+                {statsLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  `${communityStats?.engagementRate || 0}%`
+                )}
+              </div>
               <div className="text-sm text-muted-foreground">Engagement Rate</div>
             </div>
           </div>
@@ -387,9 +456,9 @@ export default function Community() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="space-y-6">
             {/* Main Feed */}
-            <div className="lg:col-span-3 space-y-6">
+            <div className="space-y-6">
               {/* Loading State */}
               {loading && (
                 <Card className="p-12 flex flex-col items-center justify-center">
@@ -561,8 +630,13 @@ export default function Community() {
                                       </div>
                                       <p className="text-sm">{comment.content}</p>
                                     </div>
-                                    <Button variant="ghost" size="sm" className="h-6 px-2 mt-1">
-                                      <Heart className="h-3 w-3 mr-1" />
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      className={`h-6 px-2 mt-1 ${commentLikes[comment.id] ? 'text-red-500' : ''}`}
+                                      onClick={() => toggleCommentLike(comment.id)}
+                                    >
+                                      <Heart className={`h-3 w-3 mr-1 ${commentLikes[comment.id] ? 'fill-current' : ''}`} />
                                       <span className="text-xs">Like</span>
                                     </Button>
                                   </div>
@@ -617,65 +691,8 @@ export default function Community() {
                 </div>
               )}
             </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              {/* Trending Topics */}
-              <Card className="p-6">
-                <h3 className="text-lg font-semibold mb-4">Trending Topics</h3>
-                <div className="space-y-3">
-                  {trendingTopics.map((topic, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">#{topic.name}</div>
-                        <div className="text-sm text-muted-foreground">{topic.posts} posts</div>
-                      </div>
-                      <Badge variant="outline" className="text-xs text-success">
-                        {topic.growth}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              {/* Top Contributors */}
-              <Card className="p-6">
-                <h3 className="text-lg font-semibold mb-4">Top Contributors</h3>
-                <div className="space-y-3">
-                  {topContributors.map((contributor, index) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <div className="text-xl">{contributor.badge}</div>
-                      <div className="flex-1">
-                        <div className="font-medium">{contributor.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {contributor.points} points • {contributor.posts} posts
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              {/* Educational Content */}
-              <Card className="p-6 gradient-secondary text-white">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="h-5 w-5" />
-                    <span className="font-semibold">Featured Guide</span>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold mb-2">Building Unbreakable Habits</h4>
-                    <p className="text-sm text-white/90 mb-4">
-                      Learn the science-backed methods for creating lasting behavioral change.
-                    </p>
-                    <Button variant="glass" size="sm">
-                      Read Guide
-                    </Button>
-                  </div>
-                </div>
-              </Card>
             </div>
-          </div>
+
         </TabsContent>
 
         <TabsContent value="podcasts" className="space-y-6">

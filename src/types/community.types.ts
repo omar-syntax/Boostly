@@ -110,3 +110,10 @@ export interface PostShareRow {
     user_id: string
     created_at: string
 }
+
+export interface CommunityStats {
+    activeMembers: number
+    postsToday: number
+    achievementsShared: number
+    engagementRate: number
+}
