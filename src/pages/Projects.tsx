@@ -21,16 +21,24 @@ import {
   Dumbbell
 } from "lucide-react"
 
+interface ChecklistItem {
+  id: string
+  text: string
+  completed: boolean
+}
+
 interface Project {
   id: string
   title: string
   description: string
+  goals: ChecklistItem[]
+  tasks: ChecklistItem[]
   progress: number
   category: string
   startDate: Date
   dueDate: Date
   priority: "low" | "medium" | "high"
-  tasks: {
+  taskStats: {
     total: number
     completed: number
   }
@@ -40,68 +48,7 @@ interface Project {
   icon: any
 }
 
-const initialProjects: Project[] = [
-  {
-    id: "1",
-    title: "Personal Fitness Journey",
-    description: "Get in the best shape of my life through consistent exercise and nutrition",
-    progress: 65,
-    category: "Health",
-    startDate: new Date(2024, 0, 1),
-    dueDate: new Date(2024, 11, 31),
-    priority: "high",
-    tasks: { total: 24, completed: 16 },
-    collaborators: 0,
-    points: 850,
-    color: "bg-success",
-    icon: Dumbbell
-  },
-  {
-    id: "2", 
-    title: "Learn Spanish Fluency",
-    description: "Achieve conversational fluency in Spanish through daily practice",
-    progress: 40,
-    category: "Learning",
-    startDate: new Date(2024, 2, 1),
-    dueDate: new Date(2024, 8, 30),
-    priority: "medium",
-    tasks: { total: 18, completed: 7 },
-    collaborators: 2,
-    points: 480,
-    color: "bg-primary",
-    icon: Book
-  },
-  {
-    id: "3",
-    title: "Launch Side Business",
-    description: "Build and launch my freelance web design business",
-    progress: 80,
-    category: "Career",
-    startDate: new Date(2024, 1, 15),
-    dueDate: new Date(2024, 5, 30),
-    priority: "high",
-    tasks: { total: 32, completed: 26 },
-    collaborators: 1,
-    points: 1240,
-    color: "bg-warning",
-    icon: Briefcase
-  },
-  {
-    id: "4",
-    title: "Mindfulness Practice",
-    description: "Develop a consistent meditation and mindfulness routine",
-    progress: 55,
-    category: "Wellness",
-    startDate: new Date(2024, 3, 1),
-    dueDate: new Date(2024, 11, 31),
-    priority: "medium", 
-    tasks: { total: 12, completed: 7 },
-    collaborators: 0,
-    points: 320,
-    color: "bg-secondary",
-    icon: Heart
-  }
-]
+const initialProjects: Project[] = []
 
 const priorityColors = {
   low: "bg-muted text-muted-foreground",
@@ -245,7 +192,7 @@ export default function Projects() {
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div className="text-center">
-                    <div className="font-semibold">{project.tasks.completed}/{project.tasks.total}</div>
+                    <div className="font-semibold">{project.taskStats.completed}/{project.taskStats.total}</div>
                     <div className="text-muted-foreground">Tasks</div>
                   </div>
                   
