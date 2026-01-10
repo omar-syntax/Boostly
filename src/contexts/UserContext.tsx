@@ -19,6 +19,7 @@ interface User {
   rank: number
   previousRank: number
   weeklyPoints: number
+  timerType: 'linear' | 'circular' // Timer preference
 }
 
 interface UserContextType {
@@ -65,15 +66,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
           initials,
           level: data.level,
           points: data.points,
-          badge: getBadgeForLevel(data.level), // Calculate badge dynamically or store it? Sticking to calc for now
+          badge: getBadgeForLevel(data.level),
           streak: data.streak,
           tasksCompleted: data.tasks_completed,
           focusHours: data.focus_hours,
           avatar: data.avatar_url || "gradient-primary",
-          profilePhoto: data.avatar_url || undefined, // Map null to undefined
+          profilePhoto: data.avatar_url || undefined,
           rank: data.rank,
-          previousRank: data.rank, // You might want to track this separately in DB or logic
-          weeklyPoints: data.weekly_points
+          previousRank: data.rank,
+          weeklyPoints: data.weekly_points,
+          timerType: data.timer_type || 'linear' // Default to linear
         })
       }
     } catch (error) {
@@ -125,6 +127,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (updates.weeklyPoints !== undefined) dbUpdates.weekly_points = updates.weeklyPoints
       if (updates.name !== undefined) dbUpdates.full_name = updates.name
       if (updates.avatar !== undefined) dbUpdates.avatar_url = updates.avatar
+      if (updates.timerType !== undefined) dbUpdates.timer_type = updates.timerType
       if (updates.profilePhoto !== undefined) {
         dbUpdates.avatar_url = updates.profilePhoto
         // Also update avatar field for consistency

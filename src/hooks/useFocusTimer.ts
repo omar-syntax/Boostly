@@ -17,11 +17,12 @@ interface StoredSession {
 interface UseFocusTimerProps {
     onComplete: () => void
     initialType?: SessionType
+    initialDuration?: number
 }
 
-export function useFocusTimer({ onComplete, initialType = 'work' }: UseFocusTimerProps) {
-    const [timeLeft, setTimeLeft] = useState(25 * 60)
-    const [duration, setDuration] = useState(25 * 60)
+export function useFocusTimer({ onComplete, initialType = 'work', initialDuration = 25 * 60 }: UseFocusTimerProps) {
+    const [timeLeft, setTimeLeft] = useState(initialDuration)
+    const [duration, setDuration] = useState(initialDuration)
     const [type, setType] = useState<SessionType>(initialType)
     const [state, setState] = useState<TimerState>('idle')
 

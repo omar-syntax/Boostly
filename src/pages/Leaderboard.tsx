@@ -24,6 +24,16 @@ import {
 const timeframes = ["This Week", "This Month", "All Time"]
 const categories = ["Overall", "Tasks", "Focus", "Habits", "Projects"]
 
+const formatFocusHours = (hours: number): string => {
+  if (hours < 1) {
+    return `${Math.round(hours * 60)}m`
+  } else if (hours < 10) {
+    return `${Math.round(hours * 10) / 10}h`
+  } else {
+    return `${Math.round(hours)}h`
+  }
+}
+
 export default function Leaderboard() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("This Week")
   const [selectedCategory, setSelectedCategory] = useState("Overall")
@@ -296,18 +306,18 @@ export default function Leaderboard() {
                 </div>
                 <div className="flex items-center gap-1">
                   <Timer className="h-3 w-3 text-primary" />
-                  <span>{currentUser.focusHours}h focus</span>
+                  <span>{formatFocusHours(currentUser.focusHours)} focus</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Target className="h-3 w-3 text-secondary" />
                   <span>{currentUser.streak} streak</span>
                 </div>
               </div>
-            </div>
 
-            <div className="text-right">
-              <div className="text-2xl font-bold text-primary">+{currentUser.weeklyPoints}</div>
-              <div className="text-sm text-muted-foreground">this week</div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-primary">+{currentUser.weeklyPoints}</div>
+                <div className="text-sm text-muted-foreground">this week</div>
+              </div>
             </div>
           </div>
         </Card>
@@ -367,7 +377,7 @@ export default function Leaderboard() {
                   </div>
                   
                   <div className="text-center">
-                    <div className="font-semibold">{entry.focusHours}h</div>
+                    <div className="font-semibold">{formatFocusHours(entry.focusHours)}</div>
                     <div className="text-muted-foreground">Focus</div>
                   </div>
                   
