@@ -10,47 +10,45 @@ import {
   Calendar,
   Clock,
   Zap,
-  Star
+  Star,
+  Loader2
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LineChart, Line, Area, AreaChart } from "recharts"
-
-const weeklyFocusData = [
-  { day: 'Mon', sessions: 4, minutes: 100, points: 200 },
-  { day: 'Tue', sessions: 6, minutes: 150, points: 300 },
-  { day: 'Wed', sessions: 3, minutes: 75, points: 150 },
-  { day: 'Thu', sessions: 8, minutes: 200, points: 400 },
-  { day: 'Fri', sessions: 5, minutes: 125, points: 250 },
-  { day: 'Sat', sessions: 7, minutes: 175, points: 350 },
-  { day: 'Sun', sessions: 2, minutes: 50, points: 100 },
-]
-
-const monthlyTrend = [
-  { week: 'Week 1', hours: 8.5 },
-  { week: 'Week 2', hours: 12.2 },
-  { week: 'Week 3', hours: 15.8 },
-  { week: 'Week 4', hours: 18.3 },
-]
-
-const sessionTypes = [
-  { type: 'Pomodoro (25m)', count: 48, percentage: 65 },
-  { type: 'Short Break (5m)', count: 20, percentage: 27 },
-  { type: 'Long Break (15m)', count: 6, percentage: 8 },
-]
+import { useFocusStats } from "@/hooks/useFocusStats"
+import { useState, useEffect } from "react"
 
 interface FocusStatsDialogProps {
   children: React.ReactNode
 }
 
 export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
-  const totalSessions = 35
-  const totalHours = 18.3
-  const totalPoints = 1750
-  const avgSessionLength = 25
-  const longestStreak = 12
-  const todaysSessions = 3
+  const [isOpen, setIsOpen] = useState(false)
+  const {
+    totalSessions,
+    totalHours,
+    totalPoints,
+    avgSessionLength,
+    longestStreak,
+    todaysSessions,
+    weeklyData,
+    monthlyTrend,
+    sessionTypes,
+    productivityTrend,
+    weeklyGoalProgress,
+    isLoading,
+    refetch
+  } = useFocusStats()
+
+  useEffect(() => {
+    if (isOpen) {
+      refetch()
+      const interval = setInterval(refetch, 30000) // Refresh every 30 seconds
+      return () => clearInterval(interval)
+    }
+  }, [isOpen, refetch])
 
   return (
-    <Dialog>
+    <Dialog onOpenChange={(isOpen) => setIsOpen(isOpen)}>
       <DialogTrigger asChild>
         {children}
       </DialogTrigger>
@@ -63,7 +61,12 @@ export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="space-y-6">
           {/* Key Metrics */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card className="p-4">
@@ -124,7 +127,7 @@ export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
                 <p className="text-sm text-muted-foreground">Sessions completed this week</p>
               </div>
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={weeklyFocusData}>
+                <BarChart data={weeklyData}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis dataKey="day" />
                   <YAxis />
@@ -183,7 +186,9 @@ export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
                     <TrendingUp className="h-5 w-5 text-success" />
                     <span className="text-sm">Productivity Trend</span>
                   </div>
-                  <Badge className="bg-success text-white">+23%</Badge>
+                  <Badge className={`text-white ${productivityTrend >= 0 ? 'bg-success' : 'bg-destructive'}`}>
+                    {productivityTrend >= 0 ? '+' : ''}{productivityTrend}%
+                  </Badge>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg">
@@ -200,15 +205,21 @@ export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
                     <span className="text-sm">Today's Progress</span>
                   </div>
                   <span className="font-semibold">{todaysSessions}/8 sessions</span>
+                  <button 
+                    onClick={refetch}
+                    className="ml-2 text-xs text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    Refresh
+                  </button>
                 </div>
 
                 <div className="mt-4 p-4 border border-border rounded-lg">
                   <div className="text-sm text-muted-foreground mb-2">Weekly Goal Progress</div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium">40 hours</span>
-                    <span className="text-sm">{Math.round((totalHours/40) * 100)}%</span>
+                    <span className="text-sm">{Math.round(weeklyGoalProgress)}%</span>
                   </div>
-                  <Progress value={(totalHours/40) * 100} />
+                  <Progress value={weeklyGoalProgress} />
                 </div>
               </div>
             </Card>
@@ -231,6 +242,7 @@ export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
             </div>
           </Card>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   )

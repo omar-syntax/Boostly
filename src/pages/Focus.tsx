@@ -241,9 +241,9 @@ export default function Focus() {
             <div className="text-xl font-bold">{pointsToday}</div>
             <div className="text-xs text-muted-foreground">Points</div>
           </Card>
-          <Card className="p-3 glass-card flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-colors">
+          <Card className="p-3 glass-card flex flex-col items-center justify-center">
             <FocusStatsDialog>
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center cursor-pointer hover:bg-white/5 transition-colors rounded p-2 -m-2">
                 <Zap className="h-5 w-5 text-primary mb-1" />
                 <div className="text-xs font-medium">Stats</div>
               </div>
