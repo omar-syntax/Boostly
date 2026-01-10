@@ -171,16 +171,34 @@ export function useFocusStats() {
     }))
   }, [])
 
-  const calculateProductivityTrend = useCallback((monthlyTrend: MonthlyTrend[]): number => {
-    if (monthlyTrend.length < 2) return 0
+  const calculateProductivityTrend = useCallback((sessions: FocusSession[]): number => {
+    if (sessions.length === 0) return 0
     
-    const recentWeeks = monthlyTrend.slice(-2)
-    const previousHours = recentWeeks[0]?.hours || 0
-    const currentHours = recentWeeks[1]?.hours || 0
+    const now = new Date()
+    const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    const previous7Days = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
     
-    if (previousHours === 0) return currentHours > 0 ? 100 : 0
+    // Get sessions from last 7 days
+    const recentSessions = sessions.filter(s => new Date(s.completed_at) >= last7Days)
+    const recentHours = recentSessions.reduce((sum, s) => sum + s.duration, 0) / 60
     
-    return Math.round(((currentHours - previousHours) / previousHours) * 100)
+    // Get sessions from previous 7 days (7-14 days ago)
+    const previousSessions = sessions.filter(s => {
+      const sessionDate = new Date(s.completed_at)
+      return sessionDate >= previous7Days && sessionDate < last7Days
+    })
+    const previousHours = previousSessions.reduce((sum, s) => sum + s.duration, 0) / 60
+    
+    // If no previous activity, show strong positive trend if now active
+    if (previousHours === 0) {
+      return recentHours > 0 ? 100 : 0
+    }
+    
+    // Calculate percentage change
+    const trend = ((recentHours - previousHours) / previousHours) * 100
+    
+    // Cap the trend at reasonable bounds (-100% to +200%)
+    return Math.max(-100, Math.min(200, Math.round(trend)))
   }, [])
 
   const fetchStats = useCallback(async () => {
@@ -224,7 +242,7 @@ export function useFocusStats() {
       const weeklyData = getWeeklyData(focusSessions)
       const monthlyTrend = getMonthlyTrend(focusSessions)
       const sessionTypes = getSessionTypes(focusSessions)
-      const productivityTrend = calculateProductivityTrend(monthlyTrend)
+      const productivityTrend = calculateProductivityTrend(focusSessions)
       
       const weeklyGoalHours = 40
       const currentWeekHours = weeklyData.reduce((sum, day) => sum + day.minutes, 0) / 60

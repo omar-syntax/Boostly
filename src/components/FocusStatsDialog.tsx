@@ -186,9 +186,13 @@ export function FocusStatsDialog({ children }: FocusStatsDialogProps) {
                     <TrendingUp className="h-5 w-5 text-success" />
                     <span className="text-sm">Productivity Trend</span>
                   </div>
-                  <Badge className={`text-white ${productivityTrend >= 0 ? 'bg-success' : 'bg-destructive'}`}>
-                    {productivityTrend >= 0 ? '+' : ''}{productivityTrend}%
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    {productivityTrend > 0 && <TrendingUp className="h-4 w-4 text-success" />}
+                    {productivityTrend < 0 && <TrendingUp className="h-4 w-4 text-destructive rotate-180" />}
+                    <Badge className={`text-white ${productivityTrend >= 0 ? 'bg-success' : 'bg-destructive'}`}>
+                      {productivityTrend >= 0 ? '+' : ''}{productivityTrend}%
+                    </Badge>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg">
